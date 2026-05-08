@@ -1,0 +1,100 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+  relationMode = "prisma"
+}
+
+model User {
+  id               Int            @id @default(autoincrement())
+  email            String         @unique
+  password         String?
+  userType         String         @default("CANDIDATE") // ADMIN, EMPLOYER, CANDIDATE
+  credits          Int            @default(10)
+  referralCode     String         @unique
+  referredBy       Int?
+  verificationCode String?        
+  createdAt        DateTime       @default(now())
+  
+  fullName         String?
+  phone            String?
+  cvText           String?        @db.LongText
+  cvFileName       String?
+  skills           String?        @db.Text
+  
+  jobs             Job[]
+  applications     JobApplication[]
+  savedJobs        SavedJob[]
+  sentMessages     ChatMessage[]  @relation("SentMessages")
+  receivedMessages ChatMessage[]  @relation("ReceivedMessages")
+  studyPlans       StudyPlan[]
+}
+
+model Job {
+  id          Int              @id @default(autoincrement())
+  title       String
+  description String           @db.Text
+  requirements String          @db.Text
+  location    String
+  salary      String?
+  category    String           @default("IT")
+  jobType     String           @default("FULL_TIME")
+  status      String           @default("ACTIVE")
+  employerId  Int
+  employer    User             @relation(fields: [employerId], references: [id])
+  image       String?          @db.LongText
+  applications JobApplication[]
+  savedBy     SavedJob[]
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model JobApplication {
+  id          Int      @id @default(autoincrement())
+  jobId       Int
+  candidateId Int
+  status      String   @default("PENDING")
+  matchScore  Int?     
+  feedback    String?  @db.Text 
+  job         Job      @relation(fields: [jobId], references: [id])
+  candidate   User     @relation(fields: [candidateId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, candidateId])
+}
+
+model SavedJob {
+  id          Int      @id @default(autoincrement())
+  jobId       Int
+  candidateId Int
+  job         Job      @relation(fields: [jobId], references: [id])
+  candidate   User     @relation(fields: [candidateId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([jobId, candidateId])
+  @@index([candidateId])
+}
+
+model StudyPlan {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  title       String
+  content     String   @db.Text 
+  status      String   @default("IN_PROGRESS")
+  user        User     @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+}
+
+model ChatMessage {
+  id          Int      @id @default(autoincrement())
+  message     String   @db.Text
+  senderId    Int
+  receiverId  Int
+  sender      User     @relation("SentMessages", fields: [senderId], references: [id])
+  receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
+  createdAt   DateTime @default(now())
+  isRead      Boolean  @default(false)
+}

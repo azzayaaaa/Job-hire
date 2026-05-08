@@ -1,0 +1,13 @@
+packages:
+  - '.'
+  - 'services/*'
+ignoredBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - bcrypt
+  - core-js
+  - inotify
+  - msgpackr-extract
+  - prisma
+  - sharp
+  - unrs-resolver
