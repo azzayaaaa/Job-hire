@@ -1,5 +1,14 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+
+# Бүх хавтас доторх node_modules-ийг алгасах
+node_modules/
+**/node_modules/
+
+# Бусад хэрэггүй файлууд
+.next/
+**/build/
+.env*
 # dependencies
 /node_modules
 /.pnp
