@@ -48,7 +48,7 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-[16px] font-black text-white">Ажлын байрууд</h2>
           <p className="text-[12px] text-white/35 mt-1">
@@ -61,7 +61,8 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
       {/* Jobs Grid */}
       {jobs.length > 0 ? (
         <div className="bg-[#111827] rounded-2xl border border-white/[0.06] overflow-hidden">
-          <table className="w-full">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px]">
             <thead>
               <tr className="border-b border-white/[0.04]">
                 <th className="px-6 py-3 text-left text-[9px] font-black uppercase tracking-widest text-white/25">
@@ -130,6 +131,7 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-8 text-center">

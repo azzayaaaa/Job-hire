@@ -57,6 +57,7 @@ const services = [
   { path: '/api/jobs', target: 'http://127.0.0.1:5003' },
   { path: '/api/ai', target: 'http://127.0.0.1:5004' },
   { path: '/api/users', target: 'http://127.0.0.1:5005' },
+  { path: '/api/notifications', target: 'http://127.0.0.1:5005' },
   { path: '/api/notify', target: 'http://127.0.0.1:5006' },
   { path: '/api/chat', target: 'http://127.0.0.1:5007' },
 ];

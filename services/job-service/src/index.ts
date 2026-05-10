@@ -13,6 +13,68 @@ dotenv.config();
 const app = express();
 const prisma = new PrismaClient();
 const NOTIFY_SERVICE_URL = 'http://127.0.0.1:5006/api/notify';
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://127.0.0.1:5005/api/users';
+const NOTIFICATION_SERVICE_URL = process.env.NOTIFICATION_SERVICE_URL || 'http://127.0.0.1:5005/api/notifications';
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function emailTemplate(title: string, body: string, ctaLabel: string, ctaUrl: string) {
+  return `
+    <div style="margin:0;padding:28px;background:#f4f7fb;font-family:Arial,sans-serif;color:#111827">
+      <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:22px;overflow:hidden;border:1px solid #e5e7eb">
+        <div style="padding:24px 28px;background:linear-gradient(135deg,#111827,#1d4ed8);color:#fff">
+          <div style="font-size:12px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;opacity:.75">JobHub мэдэгдэл</div>
+          <h1 style="margin:10px 0 0;font-size:24px;line-height:1.25">${escapeHtml(title)}</h1>
+        </div>
+        <div style="padding:28px">
+          <div style="font-size:15px;line-height:1.7;color:#374151">${body}</div>
+          <a href="${escapeHtml(ctaUrl)}" style="display:inline-block;margin-top:24px;background:#2563eb;color:#fff;text-decoration:none;font-weight:800;border-radius:12px;padding:13px 18px">
+            ${escapeHtml(ctaLabel)}
+          </a>
+          <p style="margin-top:24px;font-size:12px;color:#9ca3af">Имэйл мэдэгдлээ тохиргооноос унтрааж болно. Платформын хонхон дээрх мэдэгдэл үргэлж хадгалагдана.</p>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+async function getEmailPreference(userId: number) {
+  try {
+    const res = await axios.get(`${USER_SERVICE_URL}/profile/${userId}`);
+    return res.data?.emailNotifications !== false;
+  } catch (error: any) {
+    console.error(`[Job Service] Could not fetch email preference for user ${userId}:`, error.message);
+    return true;
+  }
+}
+
+async function sendEmailIfAllowed(userId: number, to: string, subject: string, html: string) {
+  const allowed = await getEmailPreference(userId);
+  if (!allowed) return;
+  await axios.post(`${NOTIFY_SERVICE_URL}/send-email`, { to, subject, html });
+}
+
+async function createInAppNotification(data: {
+  senderId: number;
+  receiverId: number;
+  type: string;
+  title: string;
+  message: string;
+  link?: string;
+}) {
+  try {
+    await axios.post(NOTIFICATION_SERVICE_URL, data);
+  } catch (error: any) {
+    console.error('[Job Service] In-app notification failed:', error.message);
+  }
+}
 
 // Redis Queue Setup
 const notificationQueue = new Queue('job-notifications', {
@@ -169,13 +231,13 @@ app.post('/api/jobs/create', async (req, res) => {
   try {
     const experienceMarker = `[EXPERIENCE:${experience || '1-3'}]`;
     const job = await prisma.job.create({
-      data: { 
-        title, 
-        description, 
+      data: {
+        title,
+        description,
         requirements: `${experienceMarker}\n${requirements}`,
-        location, 
-        salary, 
-        category, 
+        location,
+        salary,
+        category,
         jobType: jobType || "FULL_TIME",
         employerId: Number(employerId),
         image: image || null
@@ -184,34 +246,49 @@ app.post('/api/jobs/create', async (req, res) => {
 
     console.log(`[Job Service] 200 OK - Job created successfully with ID: ${job.id}`);
 
-    // Төстэй ур чадвартай хэрэглэгчдийг хайх
-    const matchingUsers = await prisma.user.findMany({
-      where: { userType: 'CANDIDATE' },
-      select: { email: true }
+    const [matchingUsers, employer] = await Promise.all([
+      prisma.user.findMany({
+        where: { userType: 'CANDIDATE' },
+        select: { id: true, email: true, fullName: true }
+      }),
+      prisma.user.findUnique({
+        where: { id: Number(employerId) },
+        select: { id: true, fullName: true, email: true }
+      })
+    ]);
+
+    const jobLink = `http://localhost:3000/dashboard/candidate?job=${job.id}`;
+    const notifications = matchingUsers.map(async (user) => {
+      await createInAppNotification({
+        senderId: Number(employerId),
+        receiverId: user.id,
+        type: 'JOB_OFFER',
+        title: 'Шинэ ажлын зар нэмэгдлээ',
+        message: `${employer?.fullName || employer?.email || 'Ажил олгогч'} "${title}" ажлын зарыг нийтэллээ. Дээр дарж дэлгэрэнгүй харна уу.`,
+        link: jobLink,
+      });
+
+      await sendEmailIfAllowed(
+        user.id,
+        user.email,
+        `Шинэ ажлын зар: ${title}`,
+        emailTemplate(
+          'Шинэ ажлын зар нэмэгдлээ',
+          `<p>Сайн байна уу?</p><p><b>${escapeHtml(employer?.fullName || employer?.email || 'Ажил олгогч')}</b> шинэ ажлын зар нийтэллээ.</p><p><b>${escapeHtml(title)}</b><br/>Байршил: ${escapeHtml(location)}</p>`,
+          'Дэлгэрэнгүй харах',
+          jobLink,
+        ),
+      );
     });
 
-    // Notify Service-ээр мэдэгдэл илгээх (Parallelized)
-    const notifications = matchingUsers.map(user => 
-      axios.post(`${NOTIFY_SERVICE_URL}/send-email`, {
-        to: user.email,
-        subject: `Шинэ ажил: ${title} зарлагдлаа!`,
-        html: `<h3>Сайн байна уу?</h3><p>Танд тохирох шинэ ажлын зар нэмэгдлээ: <b>${title}</b>. <br/> Байршил: ${location}</p>`
-      }).catch(err => {
-        console.error(`[Notify Service] Failed to send to ${user.email}:`, err.message);
-      })
-    );
-
-    // Don't wait for all notifications to finish before responding to the user
-    // or use Promise.allSettled if you want to ensure they all fire
     Promise.allSettled(notifications);
 
     res.status(201).json(job);
   } catch (error) {
     console.error('[Job Service] Error creating job:', error);
-    res.status(500).json({ error: "Зар үүсгэхэд алдаа гарлаа" });
+    res.status(500).json({ error: "Ажил хадгалах үед алдаа гарлаа" });
   }
 });
-
 app.post('/api/jobs/apply', async (req, res) => {
   const { jobId, candidateId } = req.body;
   console.log(`[Job Service] POST /api/jobs/apply - Candidate ${candidateId} applying for job ${jobId}`);
@@ -227,27 +304,44 @@ app.post('/api/jobs/apply', async (req, res) => {
     const job = await prisma.job.findUnique({ where: { id: parsedJobId } });
     if (!job) return res.status(404).json({ error: "Job not found" });
 
-    // Simulate AI match score based on common keywords (can be expanded)
-    const matchScore = Math.floor(Math.random() * 30) + 70; // Simulated 70-100%
-
     const application = await prisma.jobApplication.create({
-      data: { 
-        jobId: parsedJobId, 
-        candidateId: parsedCandidateId, 
-        matchScore, 
-        feedback: "AI matches your profile successfully!"
+      data: {
+        jobId: parsedJobId,
+        candidateId: parsedCandidateId,
+        matchScore: null,
+        feedback: "Хүсэлт амжилттай илгээгдлээ."
       }
     });
 
-    // Notify Employer (Non-blocking)
     try {
-      const employer = await prisma.user.findUnique({ where: { id: job.employerId } });
-      if (employer) {
-        await axios.post(`${NOTIFY_SERVICE_URL}/send-email`, {
-          to: employer.email,
-          subject: `Шинэ хүсэлт: ${job.title}`,
-          html: `<h3>Сайн байна уу?</h3><p>Таны <b>${job.title}</b> зарт шинэ хүн хүсэлт ирүүллээ.</p><p>AI Тохироо: ${matchScore}%</p><a href="http://localhost:3000/dashboard/employer">Дэлгэрэнгүй үзэх</a>`
+      const [employer, candidate] = await Promise.all([
+        prisma.user.findUnique({ where: { id: job.employerId }, select: { id: true, email: true, fullName: true } }),
+        prisma.user.findUnique({ where: { id: parsedCandidateId }, select: { id: true, email: true, fullName: true } })
+      ]);
+
+      if (employer && candidate) {
+        const candidateName = candidate.fullName || candidate.email;
+        const employerLink = 'http://localhost:3000/dashboard/employer?tab=candidates';
+        await createInAppNotification({
+          senderId: candidate.id,
+          receiverId: employer.id,
+          type: 'JOB_OFFER',
+          title: 'Шинэ ажлын хүсэлт ирлээ',
+          message: `Таны "${job.title}" зарт ${candidateName} хүсэлт явууллаа. Энэ дээр дарж дэлгэрэнгүй харна уу.`,
+          link: employerLink,
         });
+
+        await sendEmailIfAllowed(
+          employer.id,
+          employer.email,
+          `Шинэ хүсэлт: ${job.title}`,
+          emailTemplate(
+            'Шинэ ажлын хүсэлт ирлээ',
+            `<p>Сайн байна уу?</p><p>Таны <b>${escapeHtml(job.title)}</b> зарт <b>${escapeHtml(candidateName)}</b> хүсэлт явууллаа.</p><p>Кандидатын CV болон дэлгэрэнгүй мэдээллийг самбараасаа шалгана уу.</p>`,
+            'Кандидатууд харах',
+            employerLink,
+          ),
+        );
       }
     } catch (notifyErr: any) {
       console.error('[Job Service] Notification failed (Apply):', notifyErr.message);
@@ -260,7 +354,6 @@ app.post('/api/jobs/apply', async (req, res) => {
     return res.status(500).json({ error: 'Failed to create job application.', details: error.message });
   }
 });
-
 // Submit CV to Employer
 app.post('/api/jobs/submit-cv', async (req, res) => {
   const { jobId, candidateId, cvData, cvName, employerId } = req.body;
@@ -355,6 +448,48 @@ app.post('/api/jobs/applications/:applicationId/status', async (req, res) => {
         }
       }
     });
+
+    try {
+      const employer = await prisma.user.findUnique({
+        where: { id: application.job.employerId },
+        select: { id: true, email: true, fullName: true }
+      });
+
+      if (employer && (normalizedStatus === 'APPROVED' || normalizedStatus === 'REJECTED')) {
+        const employerName = employer.fullName || employer.email || 'Ажил олгогч';
+        const approved = normalizedStatus === 'APPROVED';
+        const link = approved
+          ? 'http://localhost:3000/dashboard/candidate?tab=messages'
+          : 'http://localhost:3000/dashboard/candidate?tab=applied';
+        const titleText = approved ? 'Таны хүсэлт зөвшөөрөгдлөө' : 'Таны хүсэлт татгалзагдлаа';
+        const messageText = approved
+          ? `Баяр хүргэе! Ажил олгогч ${employerName} таны "${application.job.title}" ажилд илгээсэн хүсэлтийг зөвшөөрлөө. Энд дарж чатлана уу.`
+          : `Уучлаарай, таны хүсэлт явуулсан ${employerName} таны "${application.job.title}" ажилд илгээсэн хүсэлтийг татгалзлаа.`;
+
+        await createInAppNotification({
+          senderId: employer.id,
+          receiverId: application.candidate.id,
+          type: approved ? 'JOB_SELECTED' : 'JOB_REJECTED',
+          title: titleText,
+          message: messageText,
+          link,
+        });
+
+        await sendEmailIfAllowed(
+          application.candidate.id,
+          application.candidate.email,
+          titleText,
+          emailTemplate(
+            titleText,
+            `<p>${escapeHtml(messageText)}</p>`,
+            approved ? 'Чат руу очих' : 'Миний хүсэлтүүд',
+            link,
+          ),
+        );
+      }
+    } catch (notifyErr: any) {
+      console.error('[Job Service] Notification failed (Status):', notifyErr.message);
+    }
 
     console.log(`[Job Service] Application ${parsedApplicationId} status updated to ${normalizedStatus}`);
     res.json({ success: true, application });

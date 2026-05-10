@@ -7,7 +7,10 @@ import {
   FileText,
   Download,
   Loader2,
+  Reply,
   Send,
+  Smile,
+  X,
 } from "lucide-react";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
@@ -20,6 +23,10 @@ type ChatMessage = {
   createdAt?: string;
   seen?: boolean;
   isRead?: boolean;
+  replyToId?: number | null;
+  replyPreview?: string | null;
+  reaction?: string | null;
+  reactionById?: number | null;
 
   // Attachments
   imageUrl?: string | null;
@@ -41,6 +48,29 @@ function formatTime(createdAt?: string) {
   const d = new Date(createdAt);
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleTimeString("mn-MN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatPresence(lastActiveAt?: string | null, isOnline?: boolean) {
+  if (isOnline) return "Идэвхтэй байна";
+  if (!lastActiveAt) return "Офлайн";
+
+  const date = new Date(lastActiveAt);
+  if (Number.isNaN(date.getTime())) return "Офлайн";
+
+  const diffMs = Date.now() - date.getTime();
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+
+  if (diffMs < minute) return "Саяхан идэвхтэй байсан";
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)} мин өмнө идэвхтэй байсан`;
+  if (diffMs < day) return `${Math.floor(diffMs / hour)} цаг өмнө идэвхтэй байсан`;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (date.toDateString() === yesterday.toDateString()) return "Өчигдөр идэвхтэй байсан";
+
+  return `${date.toLocaleDateString("mn-MN", { month: "short", day: "numeric" })} идэвхтэй байсан`;
 }
 
 function formatBytes(bytes?: number | null) {
@@ -82,14 +112,19 @@ export default function ChatWindow({
 
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
 
-  // Text bubble tap highlight/pause
-  const [highlightedMessageId, setHighlightedMessageId] = useState<number | null>(null);
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [activeMessageId, setActiveMessageId] = useState<number | null>(null);
+  const [presence, setPresence] = useState<{ isOnline: boolean; lastActiveAt: string | null }>({
+    isOnline: Boolean(receiver?.isOnline),
+    lastActiveAt: receiver?.lastActiveAt || null,
+  });
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const senderIdNum = useMemo(() => Number(senderId), [senderId]);
   const chatStorageKey = useMemo(() => {
@@ -101,6 +136,14 @@ export default function ChatWindow({
   const saveCachedMessages = (nextMessages: ChatMessage[]) => {
     if (!chatStorageKey || typeof window === "undefined") return;
     localStorage.setItem(chatStorageKey, JSON.stringify(nextMessages.slice(-200)));
+  };
+
+  const getReplyPreview = (msg: ChatMessage) => {
+    const text = getMessageText(msg).trim();
+    if (text) return text.length > 90 ? `${text.slice(0, 90)}...` : text;
+    if (msg.imageUrl || msg.imageDataUrl) return "Зураг";
+    if (msg.fileName) return msg.fileName;
+    return "Мессеж";
   };
 
   const mergeMessages = (base: ChatMessage[], incoming: ChatMessage[]) => {
@@ -132,6 +175,32 @@ export default function ChatWindow({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onChatContainerRef, onScrollToInput]);
+
+  useEffect(() => {
+    setPresence({
+      isOnline: Boolean(receiver?.isOnline),
+      lastActiveAt: receiver?.lastActiveAt || null,
+    });
+  }, [receiver?.id, receiver?.isOnline, receiver?.lastActiveAt]);
+
+  useEffect(() => {
+    if (!socket || !receiver?.id) return;
+
+    const onPresence = (data: any) => {
+      if (Number(data?.userId) !== Number(receiver.id)) return;
+      setPresence({
+        isOnline: Boolean(data.isOnline),
+        lastActiveAt: data.lastActiveAt || null,
+      });
+    };
+
+    socket.emit("presence-check", receiver.id);
+    socket.on("user-presence", onPresence);
+
+    return () => {
+      socket.off("user-presence", onPresence);
+    };
+  }, [socket, receiver?.id]);
 
   // Close fullscreen on Escape
   useEffect(() => {
@@ -245,6 +314,32 @@ export default function ChatWindow({
     };
   }, [socket]);
 
+  useEffect(() => {
+    if (!socket) return;
+
+    const onReaction = (data: any) => {
+      setMessages((prev) => {
+        const next = prev.map((m) =>
+          m.id === Number(data.messageId)
+            ? {
+                ...m,
+                reaction: data.reaction || null,
+                reactionById: data.reactionById || null,
+              }
+            : m,
+        );
+        saveCachedMessages(next);
+        return next;
+      });
+    };
+
+    socket.on("message-reaction", onReaction);
+    return () => {
+      socket.off("message-reaction", onReaction);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [socket]);
+
   // Send text message
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -259,6 +354,8 @@ export default function ChatWindow({
         senderId: senderIdNum,
         receiverId: receiver.id,
         message: msgText,
+        replyToId: replyTo?.id || null,
+        replyPreview: replyTo ? getReplyPreview(replyTo) : null,
       });
 
       const newMsg: ChatMessage = {
@@ -270,8 +367,11 @@ export default function ChatWindow({
         createdAt: (res.data as any)?.createdAt || new Date().toISOString(),
         seen: (res.data as any)?.seen ?? (res.data as any)?.isRead ?? false,
         isRead: (res.data as any)?.isRead ?? (res.data as any)?.seen ?? false,
+        replyToId: (res.data as any)?.replyToId ?? replyTo?.id ?? null,
+        replyPreview: (res.data as any)?.replyPreview ?? (replyTo ? getReplyPreview(replyTo) : null),
       };
 
+      setReplyTo(null);
       setMessages((prev) => {
         const next = newMsg.id && prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg];
         saveCachedMessages(next);
@@ -288,6 +388,50 @@ export default function ChatWindow({
 
   const handlePickAttachmentsClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const startReply = (msg: ChatMessage) => {
+    setReplyTo(msg);
+    setActiveMessageId(null);
+    inputRef.current?.focus();
+  };
+
+  const reactToMessage = async (msg: ChatMessage, reaction: string) => {
+    const nextReaction = msg.reaction === reaction ? null : reaction;
+    setActiveMessageId(null);
+    setMessages((prev) => {
+      const next = prev.map((m) =>
+        m.id === msg.id
+          ? { ...m, reaction: nextReaction, reactionById: nextReaction ? senderIdNum : null }
+          : m,
+      );
+      saveCachedMessages(next);
+      return next;
+    });
+
+    try {
+      await authenticatedPost(`http://localhost:5007/api/chat/messages/${msg.id}/reaction`, {
+        reaction: nextReaction,
+        userId: senderIdNum,
+        receiverId: msg.senderId === senderIdNum ? msg.receiverId : msg.senderId,
+      });
+    } catch (error) {
+      console.error("Failed to react to message:", error);
+    }
+  };
+
+  const startLongPress = (msg: ChatMessage) => {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      setActiveMessageId(msg.id);
+    }, 450);
+  };
+
+  const stopLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
   };
 
   const handleAttachmentsChange = async (
@@ -459,7 +603,7 @@ export default function ChatWindow({
             <p className="text-xs font-black text-white uppercase truncate">
               {receiver.fullName || receiver.email.split("@")[0]}
             </p>
-            <p className="text-[9px] text-white/30">{receiver.email}</p>
+            <p className="text-[9px] text-white/30">{formatPresence(presence.lastActiveAt, presence.isOnline)}</p>
           </div>
         </div>
 
@@ -491,47 +635,79 @@ export default function ChatWindow({
             const fileName = msg.fileName || null;
 
             const text = getMessageText(msg);
-            const isHighlighted = highlightedMessageId === msg.id;
-
             const hasAttachment = Boolean(imageSrc || fileName);
+            const isActive = activeMessageId === msg.id;
 
             return (
               <div
                 key={msg.id ?? idx}
                 className={`flex ${isSender ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
               >
-                {/* No extra card/wrapper behind the bubble: only the pill itself */}
                 <div
-                  className={`w-fit max-w-[75%] md:max-w-[70%] rounded-2xl ${
+                  className={`relative w-fit max-w-[75%] md:max-w-[70%] rounded-2xl ${
                     isSender
                       ? "bg-[#4F67FF] text-white"
                       : "bg-[#1a2035] text-white border border-white/5"
                   }`}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
+                  }}
+                  onTouchStart={() => startLongPress(msg)}
+                  onTouchEnd={stopLongPress}
+                  onTouchMove={stopLongPress}
                 >
+                  {isActive && (
+                    <div
+                      className={`absolute -top-10 ${isSender ? "right-0" : "left-0"} z-10 flex items-center gap-1 rounded-full border border-white/10 bg-[#0d1117] p-1 shadow-2xl`}
+                    >
+                      {["👍", "❤️", "😂", "😮"].map((emoji) => (
+                        <button
+                          key={emoji}
+                          type="button"
+                          onClick={() => reactToMessage(msg, emoji)}
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-sm hover:bg-white/10"
+                          aria-label={`React ${emoji}`}
+                        >
+                          {emoji}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => startReply(msg)}
+                        className="flex h-7 w-7 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
+                        aria-label="Reply"
+                      >
+                        <Reply size={13} />
+                      </button>
+                    </div>
+                  )}
                   {hasAttachment ? (
                     <AttachmentBubble msg={msg} isSender={isSender} />
                   ) : (
                     <button
                       type="button"
                       onClick={() => {
-                        setHighlightedMessageId((prev) => (prev === msg.id ? null : msg.id));
+                        setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
                       }}
                       className="relative text-left text-[11px] font-medium leading-relaxed break-words w-fit"
                       style={{ padding: "8px 12px" }}
-                      aria-label="Highlight message"
+                      aria-label="Message actions"
                     >
-                      <div className="relative">
-                        <div className={isHighlighted ? "opacity-60" : "opacity-100"}>{text || ""}</div>
+                      {msg.replyPreview && (
+                        <div className={`mb-1 rounded-lg border-l-2 px-2 py-1 text-[10px] opacity-80 ${isSender ? "border-white/60 bg-white/10" : "border-[#4F67FF] bg-black/10"}`}>
+                          {msg.replyPreview}
+                        </div>
+                      )}
+                      <div>{text || ""}</div>
 
-                        {isHighlighted && (
-                          <div
-                            className={`absolute -top-2 ${isSender ? "right-1" : "left-1"} flex items-center gap-1 text-[10px] opacity-90`}
-                          >
-                            {/* pause icon removed to reduce bundle; highlight still dims */}
-                          </div>
-                        )}
-                      </div>
+                      {msg.reaction && (
+                        <span className={`absolute -bottom-3 ${isSender ? "left-2" : "right-2"} rounded-full border border-white/10 bg-[#0d1117] px-1.5 py-0.5 text-[11px] shadow-lg`}>
+                          {msg.reaction}
+                        </span>
+                      )}
 
+                      <div className="mt-1 text-[9px] opacity-70">{formatTime(msg.createdAt)}</div>
                       {isSender && renderSeenText(msg)}
                     </button>
                   )}
@@ -599,6 +775,25 @@ export default function ChatWindow({
         }
         style={{ paddingBottom: embedded ? undefined : "env(safe-area-inset-bottom)" }}
       >
+        {replyTo && (
+          <div className="mb-2 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1 text-[10px] font-bold text-[#9aa8ff]">
+                <Reply size={11} />
+                Reply
+              </div>
+              <p className="truncate text-[11px] text-white/70">{getReplyPreview(replyTo)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              className="ml-2 flex h-7 w-7 items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white"
+              aria-label="Cancel reply"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
         <div className="flex items-center gap-2 bg-[#0f1117] h-full">
           {/* image-icon 44px */}
           <button

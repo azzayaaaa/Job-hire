@@ -24,6 +24,7 @@ import axios from "axios";
 import { useLanguage, useTheme } from "../Providers";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import NotificationCenter from "@/components/NotificationCenter";
 
 export default function DashboardLayout({
   children,

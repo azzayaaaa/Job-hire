@@ -11,6 +11,7 @@ import authRoutes from './routes/auth.routes';
 import aiRoutes from './routes/ai.routes';
 import jobRoutes from './routes/job.routes';
 import chatRoutes from './routes/chat.routes';
+import notificationRoutes from './routes/notifications';
 
 dotenv.config();
 const app = express();
@@ -77,6 +78,7 @@ app.use('/api/auth', authLimiter, authRoutes); // Auth замууд дээр ч�
 app.use('/api/ai', globalLimiter, aiRoutes);
 app.use('/api/jobs', globalLimiter, jobRoutes);
 app.use('/api/chat', globalLimiter, chatRoutes);
+app.use('/api', globalLimiter, notificationRoutes);
 
 const PORT = 5001;
 server.listen(PORT, () => {

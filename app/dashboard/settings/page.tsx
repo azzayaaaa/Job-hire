@@ -7,6 +7,7 @@ import axios from "axios";
 import { useSession } from "next-auth/react";
 import { useLanguage, useTheme } from "../../Providers";
 import { authenticatedFetch } from "@/lib/axiosClient";
+import { API_URLS } from "@/lib/apiConfig";
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
@@ -15,8 +16,8 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [userProfile, setUserProfile] = useState<any>(null);
-  
-  const [notifications, setNotifications] = useState(true);
+  const [emailNotifications, setEmailNotifications] = useState(true);
+  const [savingNotifications, setSavingNotifications] = useState(false);
 
   const fetchUserProfile = async () => {
     try {
@@ -24,6 +25,7 @@ export default function SettingsPage() {
       if (!userId) return;
       const res = await authenticatedFetch(`http://127.0.0.1:5001/api/auth/profile/${userId}`);
       setUserProfile(res.data);
+      setEmailNotifications(res.data.emailNotifications ?? true);
     } catch (error) {
       console.error("Profile fetch error:", error);
     } finally {
@@ -34,6 +36,22 @@ export default function SettingsPage() {
   useEffect(() => {
     if (status === "authenticated") fetchUserProfile();
   }, [session, status]);
+
+  const handleToggleEmailNotifications = async () => {
+    setSavingNotifications(true);
+    try {
+      const userId = (session?.user as any)?.id;
+      await axios.put(API_URLS.notifications.updatePreferences(userId), {
+        emailNotifications: !emailNotifications,
+      });
+      setEmailNotifications(!emailNotifications);
+    } catch (error) {
+      console.error("Failed to update notification preferences:", error);
+      alert("Мэдэгдлүүдийн сонголтыг солихад алдаа гарлаа");
+    } finally {
+      setSavingNotifications(false);
+    }
+  };
 
   const handleCreatePassword = async () => {
     alert("Энэ функц тун удахгүй нэмэгдэнэ. Та 'Нууц үг мартсан' хэсгийг ашиглан нууц үг тохируулах боломжтой.");
@@ -59,18 +77,22 @@ export default function SettingsPage() {
             </h3>
             
             <div className="space-y-6">
-              {/* Notifications */}
+              {/* Email Notifications */}
               <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover-lift">
                 <div className="flex items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                     <Bell size={20} />
                   </div>
                   <div>
-                    <p className="text-sm font-bold">{t.notifications}</p>
-                    <p className="text-[10px] text-secondary-text">System and email notifications</p>
+                    <p className="text-sm font-bold">И-мэйл мэдэгдлүүд</p>
+                    <p className="text-[10px] text-secondary-text">Ажлын санал, сонголт, татгалзаалын мэдэгдэл</p>
                   </div>
                 </div>
-                <Toggle active={notifications} onClick={() => setNotifications(!notifications)} />
+                <Toggle
+                  active={emailNotifications}
+                  onClick={handleToggleEmailNotifications}
+                  disabled={savingNotifications}
+                />
               </div>
 
               {/* Theme Toggle */}
@@ -146,9 +168,13 @@ export default function SettingsPage() {
   );
 }
 
-function Toggle({ active, onClick }: { active: boolean, onClick: () => void }) {
+function Toggle({ active, onClick, disabled = false }: { active: boolean, onClick: () => void, disabled?: boolean }) {
   return (
-    <button onClick={onClick} className={`w-12 h-6 rounded-full p-1 transition-all duration-300 ${active ? 'bg-primary' : 'bg-secondary-text/30'}`}>
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-12 h-6 rounded-full p-1 transition-all duration-300 ${active ? 'bg-primary' : 'bg-secondary-text/30'} ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+    >
       <div className={`w-4 h-4 bg-white rounded-full transition-all duration-300 ${active ? 'translate-x-6' : 'translate-x-0'}`} />
     </button>
   );

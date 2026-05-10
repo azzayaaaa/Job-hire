@@ -87,10 +87,10 @@ export default function MessagesView({
   };
 
   return (
-    <div className="flex h-[calc(100vh-64px)] w-full overflow-hidden bg-transparent">
+    <div className="flex h-[calc(100vh-116px)] w-full overflow-hidden bg-transparent md:h-[calc(100vh-112px)] lg:h-[calc(100vh-124px)]">
       {/* LEFT */}
       <div
-        className={`w-[280px] border-r border-white/[0.06] bg-[#111827] flex flex-col overflow-hidden ${mobileShowList ? "block fixed inset-0" : "hidden"} md:static md:flex md:rounded-2xl md:border-0 md:bg-[#111827]`}
+        className={`w-full border-r border-white/[0.06] bg-[#111827] flex flex-col overflow-hidden ${mobileShowList ? "block" : "hidden"} md:w-[280px] md:static md:flex md:rounded-2xl md:border-0 md:bg-[#111827]`}
       >
         <div className="p-4 border-b border-white/[0.05] space-y-3">
           <h3 className="text-[11px] font-black uppercase tracking-widest text-white">Мессежүүд</h3>

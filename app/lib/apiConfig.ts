@@ -79,6 +79,16 @@ export const API_URLS = {
     profile: (userId: number | string) => `${gatewayBase}/api/users/profile/${userId}`,
   },
 
+  // Notifications (proxied by gateway /api/notifications -> 5005)
+  notifications: {
+    list: (userId: number | string) => `${gatewayBase}/api/notifications/${userId}`,
+    unreadCount: (userId: number | string) => `${gatewayBase}/api/notifications/${userId}/unread`,
+    create: () => `${gatewayBase}/api/notifications`,
+    markAsRead: (notificationId: number | string) => `${gatewayBase}/api/notifications/${notificationId}/read`,
+    updatePreferences: (userId: number | string) => `${gatewayBase}/api/notifications/${userId}/preferences`,
+    delete: (notificationId: number | string) => `${gatewayBase}/api/notifications/${notificationId}`,
+  },
+
   // WebSocket endpoints
   // Note: gateway currently proxies HTTP only; if you need websockets, point these
   // directly at your chat/auth websocket servers.

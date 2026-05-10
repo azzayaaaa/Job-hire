@@ -52,7 +52,7 @@ export default function CandidatesView({
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-[16px] font-black text-white">Кандидатууд</h2>
           <p className="text-[12px] text-white/35 mt-1">
@@ -85,15 +85,15 @@ export default function CandidatesView({
                   }
                   className="bg-[#111827] border border-white/[0.06] rounded-2xl p-4 hover:border-white/[0.12] transition-all cursor-pointer hover:bg-[#111827]/80"
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-4 flex-1">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex min-w-0 items-start gap-3 sm:gap-4 flex-1">
                       {/* Avatar */}
                       <div className="w-10 h-10 bg-[#4F67FF]/20 rounded-xl flex items-center justify-center text-sm font-black text-[#4F67FF] shrink-0">
                         {(candidate.fullName?.[0] || candidate.email?.[0] || "U").toUpperCase()}
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-2 mb-1">
                           <p className="text-[12px] font-bold text-white truncate">
                             {candidate.fullName || "Нэр бүртгэлтэй емес"}
                           </p>
@@ -112,7 +112,7 @@ export default function CandidatesView({
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3 text-[10px] text-white/50 mb-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[10px] text-white/50 mb-2">
                           {candidate.email && (
                             <>
                               <Mail size={11} className="shrink-0" />
@@ -127,7 +127,7 @@ export default function CandidatesView({
                           )}
                         </div>
 
-                        <div className="flex items-center gap-2 text-[9px] text-white/40">
+                        <div className="flex flex-wrap items-center gap-2 text-[9px] text-white/40">
                           <Briefcase size={10} />
                           <span>{job.title || "Ажлын зар"}</span>
                           <span>•</span>
@@ -138,7 +138,7 @@ export default function CandidatesView({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 ml-4 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 lg:ml-4 lg:shrink-0">
                       <div className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase ${statusBadge.cls}`}>
                         {statusBadge.label}
                       </div>

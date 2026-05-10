@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Eye, EyeOff, Mail, Lock, Loader2, ArrowLeft } from "lucide-react";
 import axios, { AxiosError } from "axios";
@@ -60,6 +60,7 @@ export default function LoginPage() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasMounted, setHasMounted] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [forgotStep, setForgotStep] = useState(0);
   const [resetCode, setResetCode] = useState("");
@@ -102,8 +103,20 @@ export default function LoginPage() {
       setError("Имэйл эсвэл нууц үг буруу байна");
       setLoading(false);
     } else {
+      // Redirect back to the job apply page if user came from "Apply / CV илгээх"
+      const returnTo = window.localStorage.getItem("postLoginRedirect");
+      if (returnTo) {
+        window.localStorage.removeItem("postLoginRedirect");
+        router.push(returnTo);
+        return;
+      }
       router.push("/dashboard");
     }
+  };
+
+  const getOAuthCallbackUrl = () => {
+    if (typeof window === "undefined") return "/dashboard";
+    return searchParams.get("callbackUrl") || window.localStorage.getItem("postLoginRedirect") || "/dashboard";
   };
 
   const handleForgotPassword = async () => {
@@ -360,7 +373,7 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      signIn("google", { callbackUrl: "/dashboard" })
+                      signIn("google", { callbackUrl: getOAuthCallbackUrl() })
                     }
                     className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/5 bg-white/5 py-3.5 transition-all hover:bg-white/10"
                   >

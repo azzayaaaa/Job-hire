@@ -60,11 +60,9 @@ const handler = NextAuth({
           const pendingUserType = pendingUserTypeRaw?.toUpperCase();
 
           const normalizedUserType =
-            pendingUserType === "EMPLOYER"
-              ? "EMPLOYER"
-              : pendingUserType === "ADMIN"
-                ? "ADMIN"
-                : "CANDIDATE";
+            pendingUserType === "EMPLOYER" || pendingUserType === "CANDIDATE" || pendingUserType === "ADMIN"
+              ? pendingUserType
+              : undefined;
 
           // Avoid reusing the same role nonce/cookie for later logins.
           // (If delete is unsupported in this Next runtime, it's harmless to skip.)
@@ -79,7 +77,7 @@ const handler = NextAuth({
               email: user.email,
               name: user.name,
               image: user.image,
-              userType: normalizedUserType,
+              ...(normalizedUserType ? { userType: normalizedUserType } : {}),
             }),
           });
 

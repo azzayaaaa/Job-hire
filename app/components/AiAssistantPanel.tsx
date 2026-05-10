@@ -4,12 +4,11 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Download,
   Eye,
-  FileText,
-  GraduationCap,
   MessageCircle,
   Printer,
   Send,
   Sparkles,
+  Users,
   X,
 } from "lucide-react";
 import { authenticatedPost } from "@/lib/axiosClient";
@@ -36,9 +35,13 @@ type AiMessage = {
 };
 type MessageStore = Record<string, AiMessage[]>;
 
-const modes: { key: AiMode; label: string; Icon: React.ElementType }[] = [
-  { key: "cv", label: "CV бэлдэх", Icon: FileText },
-  { key: "growth", label: "Өөрийгөө хөгжүүлэх", Icon: GraduationCap },
+const candidateModes: { key: AiMode; label: string; Icon: React.ElementType }[] = [
+  { key: "cv", label: "CV бэлдэх", Icon: Printer },
+  { key: "chat", label: "Энгийн чат", Icon: MessageCircle },
+];
+
+const employerModes: { key: AiMode; label: string; Icon: React.ElementType }[] = [
+  { key: "growth", label: "Ажилтан хайх", Icon: Users },
   { key: "chat", label: "Энгийн чат", Icon: MessageCircle },
 ];
 
@@ -77,9 +80,24 @@ function getSystemPrompt(mode: AiMode) {
     return `${base} Хэрэглэгч CV бэлдэх горим сонгосон. Мэдээлэл дутуу бол богино асуултаар тодруул. HTML, CSS, код, div tag огт битгий харуул. Зөвхөн CV-д оруулах агуулгыг цэгцтэй Монгол хэлээр санал болго.`;
   }
   if (mode === "growth") {
-    return `${base} Хэрэглэгч өөрийгөө хөгжүүлэх горим сонгосон. Ур чадвар, дадал, суралцах төлөвлөгөөг бодит алхмаар зөвлө.`;
+    return `${base} Хэрэглэгч ажилтан хайх горим сонгосон. Ажил олгогчид тохирох ажилтан хайх, шалгуур тодорхойлох, зарын шаардлага боловсруулах, кандидатыг үнэлэх талаар бодит, хэрэгжих зөвлөгөө өг.`;
   }
   return `${base} Хэрэглэгч энгийн чат горим сонгосон. Товч, найрсаг, хэрэгтэй байдлаар ярилц.`;
+}
+
+function getAiModeContext(mode: AiMode) {
+  const base =
+    "Чи JobHub платформын AI туслах. Монгол хэлээр найрсаг, шууд, хэрэгтэй хариул. Хэрэглэгч латинаар монгол бичсэн ч ойлго. Өмнөх ярианы утгыг барьж, дахин дахин мэндчилгээ давтахгүй.";
+
+  if (mode === "cv") {
+    return `${base} CV горимд байгаа тул CV бичих, засах, сайжруулах тал дээр бодитой зөвлөгөө өг. HTML/CSS код бүү гарга, зөвхөн CV-д орох агуулга санал болго.`;
+  }
+
+  if (mode === "growth") {
+    return `${base} Ажилтан хайх горимд байгаа тул ажлын зар, шаардлага, ярилцлагын асуулт, кандидат үнэлгээний талаар хэрэгжихүйц зөвлөгөө өг.`;
+  }
+
+  return `${base} Энгийн чат горимд байгаа тул товч, ойлгомжтой, ярианы өнгөөр хариул.`;
 }
 
 function escapeHtml(value: string) {
@@ -486,12 +504,16 @@ export default function AiAssistantPanel({
   open,
   onClose,
   userId,
+  role = "candidate",
 }: {
   open: boolean;
   onClose: () => void;
   userId?: number | string;
+  role?: "candidate" | "employer";
 }) {
-  const [mode, setMode] = useState<AiMode>("chat");
+  const availableModes = role === "employer" ? employerModes : candidateModes;
+  const defaultMode = availableModes[0]?.key ?? "chat";
+  const [mode, setMode] = useState<AiMode>(defaultMode);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [messageStore, setMessageStore] = useState<MessageStore>({});
@@ -500,6 +522,12 @@ export default function AiAssistantPanel({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const storageKey = useMemo(() => `jobhub-ai-${userId || "guest"}-${mode}`, [userId, mode]);
   const messages = messageStore[storageKey] ?? loadMessages(storageKey);
+
+  useEffect(() => {
+    if (!availableModes.some((item) => item.key === mode)) {
+      setMode(defaultMode);
+    }
+  }, [availableModes, defaultMode, mode]);
 
   const setMessagesForCurrentKey = (
     updater: AiMessage[] | ((previous: AiMessage[]) => AiMessage[]),
@@ -520,11 +548,17 @@ export default function AiAssistantPanel({
   const send = async (text?: string) => {
     const userText = (text ?? input).trim();
     if (!userText || loading) return;
+    const previousMessages = messages;
     setInput("");
     setMessagesForCurrentKey((prev) => [...prev, { role: "user", text: userText }]);
     setLoading(true);
     try {
       const res = await authenticatedPost(API_URLS.ai.ask(), {
+        systemContext: getAiModeContext(mode),
+        history: previousMessages.slice(-12).map((msg) => ({
+          role: msg.role,
+          content: msg.text,
+        })),
         message: `${getSystemPrompt(mode)}\n\nХэрэглэгчийн асуулт: ${userText}`,
       });
       setMessagesForCurrentKey((prev) => [
@@ -590,8 +624,8 @@ export default function AiAssistantPanel({
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-1 p-3 border-b border-gray-200 dark:border-[#1e2535]">
-          {modes.map(({ key, label, Icon }) => (
+        <div className="grid grid-cols-2 gap-1 p-3 border-b border-gray-200 dark:border-[#1e2535]">
+          {availableModes.map(({ key, label, Icon }) => (
             <button
               key={key}
               onClick={() => setMode(key)}

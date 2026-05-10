@@ -10,20 +10,20 @@ export default function InterviewsView() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-[16px] font-black text-white">Ярилцлага</h2>
           <p className="text-[12px] text-white/35 mt-1">
             Хүлээлтийн болон явагдсан ярилцлага
           </p>
         </div>
-        <button className="flex items-center gap-2 bg-[#4F67FF] hover:bg-[#3d52e0] text-white font-black text-[11px] px-4 py-2 rounded-lg transition-all">
+        <button className="flex w-full items-center justify-center gap-2 bg-[#4F67FF] hover:bg-[#3d52e0] text-white font-black text-[11px] px-4 py-2 rounded-lg transition-all sm:w-auto">
           <Plus size={13} /> Үйл явдал нэмэх
         </button>
       </div>
 
       {/* Empty State */}
-      <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-12 text-center">
+      <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-6 sm:p-12 text-center">
         <Calendar size={32} className="mx-auto text-white/20 mb-4" />
         <h3 className="text-[12px] font-black text-white/40 mb-2">
           Ярилцлага байхгүй

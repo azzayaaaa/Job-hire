@@ -32,12 +32,17 @@ model User {
   cvText           String?        @db.LongText
   cvFileName       String?
   skills           String?        @db.Text
-  
+
+  // Notification settings
+  emailNotifications Boolean       @default(true)
+
   jobs             Job[]
   applications     JobApplication[]
   sentMessages     ChatMessage[]  @relation("SentMessages")
   receivedMessages ChatMessage[]  @relation("ReceivedMessages")
   studyPlans       StudyPlan[]
+  sentNotifications Notification[] @relation("sender")
+  receivedNotifications Notification[] @relation("receiver")
 }
 
 model Job {
@@ -91,4 +96,21 @@ model ChatMessage {
   receiver    User     @relation("ReceivedMessages", fields: [receiverId], references: [id])
   createdAt   DateTime @default(now())
   isRead      Boolean  @default(false)
+}
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  senderId    Int
+  receiverId  Int
+  type        String   @default("JOB_OFFER")  // JOB_OFFER, JOB_SELECTED, JOB_REJECTED, MESSAGE
+  title       String
+  message     String   @db.Text
+  link        String?
+  isRead      Boolean  @default(false)
+  sender      User     @relation("sender", fields: [senderId], references: [id])
+  receiver    User     @relation("receiver", fields: [receiverId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([receiverId])
+  @@index([senderId])
 }

@@ -13,6 +13,8 @@ import MessagesProfilePanel from "./MessagesProfilePanel";
 import CVPreviewModal from "./CVPreviewModal";
 import FloatingChat from "@/components/FloatingChat";
 import AiAssistantPanel from "@/components/AiAssistantPanel";
+import NotificationCenter from "@/components/NotificationCenter";
+import AccountSettingsModal from "@/components/AccountSettingsModal";
 import {
   Briefcase, Users, FileText, Eye,
   Loader2, X, Home, Calendar, MessageSquare,
@@ -77,6 +79,7 @@ export default function EmployerDashboard() {
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [showModal, setShowModal]         = useState(false);
   const [showProfile, setShowProfile]     = useState(false);
+  const [showSettings, setShowSettings]   = useState(false);
   const [selectedJob, setSelectedJob]     = useState<any>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
   const [chartData, setChartData]         = useState<any[]>([]);
@@ -292,7 +295,7 @@ export default function EmployerDashboard() {
     }
     try {
       const created = await authenticatedPost(API_URLS.jobs.create(), {
-        ...jobForm, employerId: (session?.user as any).id,
+        ...jobForm, employerId: (session?.user as any).id, image: jobImage,
       });
       if (jobImage && created.data?.id) {
         safeSetLocalStorage(`jobImage_${created.data.id}`, jobImage);
@@ -380,7 +383,7 @@ export default function EmployerDashboard() {
             </button>
           ))}
           <div className="mt-auto">
-            <button onClick={() => setShowProfile(true)}
+            <button onClick={() => setShowSettings(true)}
               className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-all w-full"
             >
               <Settings size={15} /> Тохиргоо
@@ -390,8 +393,8 @@ export default function EmployerDashboard() {
 
         {/* ── MAIN CONTENT ── */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <header className="h-[60px] bg-[#0d1426] border-b border-white/[0.06] flex items-center px-6 gap-4 shrink-0">
-            <div className="flex items-center gap-2 flex-1 max-w-[440px] bg-white/[0.04] border border-white/[0.07] rounded-xl px-4 py-2">
+          <header className="min-h-[60px] bg-[#0d1426] border-b border-white/[0.06] flex items-center px-3 md:px-6 gap-3 shrink-0">
+            <div className="hidden sm:flex items-center gap-2 flex-1 max-w-[440px] bg-white/[0.04] border border-white/[0.07] rounded-xl px-4 py-2">
               <Search size={13} className="text-white/30 shrink-0" />
               <input placeholder="Ажлын байр, үр чадвар, компани хайх..." className="bg-transparent text-[12px] text-white outline-none w-full placeholder:text-white/25" />
               <div className="flex items-center gap-1 bg-white/[0.06] rounded-lg px-2 py-1 cursor-pointer shrink-0">
@@ -400,22 +403,8 @@ export default function EmployerDashboard() {
                 <ChevronDown size={10} className="text-white/30" />
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => router.push("?tab=candidates")}
-                className="relative cursor-pointer"
-                title="Мэдэгдэл харах"
-              >
-                <div className="w-9 h-9 bg-white/[0.04] border border-white/[0.07] rounded-xl flex items-center justify-center hover:bg-white/[0.07] transition-all">
-                  <Bell size={15} className="text-white/60" />
-                </div>
-                {notificationCount > 0 && (
-                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-[#4F67FF] rounded-full flex items-center justify-center text-[8px] font-black text-white">
-                    {notificationCount}
-                  </div>
-                )}
-              </button>
+            <div className="ml-auto flex items-center gap-2 md:gap-3">
+              <NotificationCenter />
               <div className="relative">
                 <div onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
                   className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-1.5 cursor-pointer hover:bg-white/[0.07] transition-all"
@@ -442,6 +431,9 @@ export default function EmployerDashboard() {
                     <button onClick={() => { setShowProfile(true); setIsProfileDropdownOpen(false); }}
                       className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/[0.05] transition-all"
                     >Профайл засах</button>
+                    <button onClick={() => { setShowSettings(true); setIsProfileDropdownOpen(false); }}
+                      className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/[0.05] transition-all"
+                    >Тохиргоо</button>
                     <button onClick={() => signOut({ callbackUrl: "/login" })}
                       className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-all border-t border-[#1e2535] flex items-center gap-2"
                     ><LogOut size={14} /> Гарах</button>
@@ -451,10 +443,10 @@ export default function EmployerDashboard() {
             </div>
           </header>
 
-          <div className={`flex-1 overflow-hidden ${tab === "messages" ? "p-0 md:p-6" : "p-6"}`}>
+          <div className={`flex-1 overflow-y-auto pb-24 ${tab === "messages" ? "p-0 md:p-4 xl:p-6" : "p-3 md:p-4 xl:p-6"}`}>
             {profileCompletion < 100 && (
               <div className="mb-6 bg-[#1a2035]/60 border border-[#3b5bdb]/30 rounded-2xl p-4 backdrop-blur-sm">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex-1">
                     <p className="text-sm font-semibold text-white mb-2">📋 Компанийн профайл {profileCompletion}% бөглөгдсөн</p>
                     <div className="w-full h-2 bg-[#1e2535] rounded-full overflow-hidden">
@@ -469,14 +461,14 @@ export default function EmployerDashboard() {
               </div>
             )}
 
-            <div className="flex items-start justify-between mb-6">
-              <div>
-                <h1 className="text-[22px] font-black text-white leading-tight">
+            <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <h1 className="text-lg sm:text-[22px] font-black text-white leading-tight break-words">
                   Тавтай морил, {employerProfile?.fullName || session?.user?.email} 👋
                 </h1>
                 <p className="text-[12px] text-white/35 mt-1">Өнөөдрийн ажлын зар, кандидатуудын тойм</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setAiOpen(true)}
                   className="flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] text-white font-black text-[12px] px-4 py-3 rounded-xl transition-all"
@@ -484,12 +476,12 @@ export default function EmployerDashboard() {
                   <Sparkles size={15} /> AI
                 </button>
                 <button onClick={handleOpenJobModal}
-                  className="flex items-center gap-2 bg-[#4F67FF] hover:bg-[#3d52e0] text-white font-black text-[12px] px-5 py-3 rounded-xl transition-all shadow-lg shadow-[#4F67FF]/20"
+                  className="flex items-center gap-2 bg-[#4F67FF] hover:bg-[#3d52e0] text-white font-black text-[12px] px-4 sm:px-5 py-3 rounded-xl transition-all shadow-lg shadow-[#4F67FF]/20"
                 ><Plus size={15} /> Ажлын байр нэмэх</button>
               </div>
             </div>
 
-            <div className="grid grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4 mb-6">
               <StatCard label="Идэвхтэй ажлын байр" value={jobs.filter(j => j.status === "ACTIVE").length} sub="Бүх идэвхтэй зарууд" subColor="#10B981" color="#4F67FF" bg="#4F67FF" icon={<Briefcase size={20} />} />
               <StatCard label="Нийт анкет" value={applications.length} sub={`${applications.length} нийт сонгогдсон`} subColor="#10B981" color="#10B981" bg="#10B981" icon={<Users size={20} />} />
               <StatCard label="Үнэлэгдсэн" value={applications.filter(a => a.status === "REVIEWED").length} sub={`${((applications.filter(a => a.status === "REVIEWED").length / (applications.length || 1)) * 100).toFixed(0)}% үнэлэгдсэн`} subColor="#A855F7" color="#A855F7" bg="#A855F7" icon={<FileText size={20} />} />
@@ -530,7 +522,12 @@ export default function EmployerDashboard() {
       </div>
 
       <FloatingChat />
-      <AiAssistantPanel open={aiOpen} onClose={() => setAiOpen(false)} userId={(session?.user as any)?.id} />
+      <AiAssistantPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        userId={(session?.user as any)?.id}
+        role="employer"
+      />
 
       {profileBubbleContact && (
         <MessagesProfilePanel
@@ -544,7 +541,7 @@ export default function EmployerDashboard() {
       {/* ── ADD JOB MODAL ── */}
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <form onSubmit={handleSubmit} className="w-full max-w-lg bg-[#0d1426] rounded-2xl border border-white/10 p-6 space-y-3 shadow-2xl">
+          <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-lg overflow-y-auto bg-[#0d1426] rounded-2xl border border-white/10 p-4 sm:p-6 space-y-3 shadow-2xl">
             <div className="flex justify-between items-center mb-1">
               <h3 className="text-[16px] font-black text-white">Шинэ зар нэмэх</h3>
               <button type="button" onClick={() => setShowModal(false)} className="text-white/40 hover:text-white transition-colors"><X size={20} /></button>
@@ -581,7 +578,7 @@ export default function EmployerDashboard() {
               <input value={jobForm.salary} onChange={e => setJobForm({ ...jobForm, salary: e.target.value })} type="number" className="w-full bg-[#111827] border border-white/[0.08] rounded-xl p-3.5 text-[12px] text-white outline-none focus:border-[#4F67FF]/50 placeholder:text-white/25" placeholder="Цалин (₮)" required />
               {jobForm.salary && <p className="text-[10px] text-[#4F67FF] mt-1 pl-1">→ {formatSalary(Number(jobForm.salary))}</p>}
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <select value={jobForm.category} onChange={e => setJobForm({ ...jobForm, category: e.target.value })} className="w-full bg-[#111827] border border-white/[0.08] rounded-xl p-3.5 text-[12px] text-white outline-none focus:border-[#4F67FF]/50" required>
                 <option value="IT">IT / Технологи</option>
                 <option value="Marketing">Маркетинг</option>
@@ -598,7 +595,7 @@ export default function EmployerDashboard() {
                 <option value="Орон нутаг">Орон нутаг</option>
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <select value={jobForm.jobType} onChange={e => setJobForm({ ...jobForm, jobType: e.target.value })} className="w-full bg-[#111827] border border-white/[0.08] rounded-xl p-3.5 text-[12px] text-white outline-none focus:border-[#4F67FF]/50" required>
                 <option value="FULL_TIME">Бүтэн цагийн</option>
                 <option value="PART_TIME">Хагас цагийн</option>
@@ -628,6 +625,13 @@ export default function EmployerDashboard() {
           onSaved={fetchProfileCompletion}
         />
       )}
+      {showSettings && (
+        <AccountSettingsModal
+          userId={(session?.user as any)?.id}
+          role="employer"
+          onClose={() => setShowSettings(false)}
+        />
+      )}
 
       {/* ── CV PREVIEW MODAL ── */}
       {selectedCandidate && (
@@ -645,7 +649,7 @@ export default function EmployerDashboard() {
 
 
       {/* ── MOBILE BOTTOM NAV (Employer) ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-[#0d1426] border-t border-white/[0.06]">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-[#0d1426] border-t border-white/[0.06]">
         <div className="grid grid-cols-5">
           {[
             { key: "home", label: "Нүүр", Icon: Home },
@@ -679,14 +683,14 @@ function StatCard({ label, value, sub, subColor, color, bg, icon }: {
   subColor: string; color: string; bg: string; icon: React.ReactNode;
 }) {
   return (
-    <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-5 flex items-center gap-4">
+    <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-4 sm:p-5 flex items-center gap-3 sm:gap-4">
       <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${bg}15`, color: bg }}>
         {icon}
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-[9px] font-black uppercase tracking-widest text-white/30 truncate">{label}</p>
         <h4 className="text-[26px] font-black leading-none mt-1" style={{ color }}>{value}</h4>
-        <p className="text-[10px] font-semibold mt-1" style={{ color: subColor }}>{sub}</p>
+        <p className="text-[10px] font-semibold mt-1 break-words" style={{ color: subColor }}>{sub}</p>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+﻿import express, { Request, Response } from "express";
 import dotenv from "dotenv";
 import cors from "cors";
 import helmet from "helmet";
@@ -37,7 +37,7 @@ const isAllowedLocalOrigin = (origin?: string): boolean => {
 };
 
 // ===============================
-// 🔥 MIDDLEWARE
+// ðŸ”¥ MIDDLEWARE
 // ===============================
 app.use(helmet());
 app.use(cors({
@@ -56,24 +56,24 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(morgan("dev"));
 
-// DEBUG бүх request body харна
+// DEBUG Ð±Ò¯Ñ… request body Ñ…Ð°Ñ€Ð½Ð°
 app.use((req, _res, next) => {
-  console.log("📦 BODY:", req.body);
+  console.log("ðŸ“¦ BODY:", req.body);
   next();
 });
 
 // ===============================
-// 🔥 ENV CHECK
+// ðŸ”¥ ENV CHECK
 // ===============================
 if (!process.env.GROQ_API_KEY) {
-  console.error("❌ GROQ_API_KEY not found");
+  console.error("âŒ GROQ_API_KEY not found");
   process.exit(1);
 }
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY.trim();
 
 console.log(
-  "✅ GROQ key:",
+  "âœ… GROQ key:",
   JSON.stringify(GROQ_API_KEY).slice(0, 18) + "...",
   "(len=" + GROQ_API_KEY.length + ")"
 );
@@ -85,15 +85,12 @@ const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || "llama-3.3-70b-versatile";
 const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
 
-const MONGOLIAN_SYSTEM_PROMPT = `Та Монголын хэл оролцуулагч юм. Дараах дүрмүүдийг сайтар дагаарай:
-
-1. ҮРГЭЛЖ зөвхөн Монгол хэл дээр хариулт өгөх
-2. Орос үгс ашигла болохгүй (жишээ нь: автобус, магазин, салон)
-3. Англи үгс монгол үсэгээр бичсэнийг ашигла болохгүй (компьютер, интернет, файл)
-4. Технологийн нэр томьёо байхгүй бол энгийн Монгол үгээр тайлбарла
-5. Хариулт нь сайн, найрсаг, ойлгомжтой байх
-
-Хэрэглэгч ямар хэлээр ярьсан ч үл зэрэгцэн монгол хэлээр хариул.`;
+const MONGOLIAN_SYSTEM_PROMPT = `
+Чи JobHub платформын AI туслах. Үндсэндээ монголоор, ойлгомжтой, найрсаг, хэрэгтэй байдлаар хариул.
+Хэрэглэгч латинаар монгол бичсэн, англи үг хольсон байсан ч утгыг нь ойлго.
+Мэндчилгээ болон богино асуултад богино, шууд хариул. Хэрэгтэй үед нэг тодруулах асуулт асуу.
+Код, API, model, CV, PDF зэрэг тогтсон нэр томьёог хүчээр орчуулах шаардлагагүй.
+`.trim();
 
 type GroqChatResponse = {
   choices?: Array<{
@@ -103,21 +100,71 @@ type GroqChatResponse = {
   }>;
 };
 
-async function groqRespond(input: string, useMongoliPrompt: boolean = true, maxTokens: number = 1024): Promise<string | null> {
-  const systemPrompt = useMongoliPrompt 
-    ? MONGOLIAN_SYSTEM_PROMPT
-    : "You are a helpful AI assistant for a job platform.";
+type GroqMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+const CHAT_SYSTEM_PROMPT = `
+Чи JobHub платформын AI туслах. Хэрэглэгчтэй ChatGPT шиг ухаалаг, энгийн, хүнтэй ярьж байгаа мэт ярилц.
+
+Зан төлөв:
+1. Үндсэндээ монголоор хариул. Хэрэглэгч латинаар монгол бичсэн ч утгыг нь ойлго.
+2. Хэрэглэгч англиар асуувал монголоор тайлбарлаад, хэрэгтэй бол англи нэр томьёог хэвээр нь ашигла.
+3. Мэндчилгээ ирвэл богино мэндлээд дараагийн алхам руу ор. Дахин дахин "Сайн байна уу" гэж бүү давт.
+4. Өмнөх ярианы утгыг барьж, яг асуусан зүйлд нь шууд хариул.
+5. Хэт албан, модон өгүүлбэрээс зайлсхий. Найрсаг, ойлгомжтой, хэрэгтэй бай.
+6. Мэдэхгүй зүйлээ зохиохгүй. Тодруулах шаардлагатай бол нэг богино асуулт асуу.
+7. Ажил, CV, ажилтан хайх, карьерын зөвлөгөөн дээр бодитой, хэрэгжихүйц зөвлөгөө өг.
+8. Код, технологи, брэнд, API, model нэр зэрэг тогтсон нэр томьёог орчуулах гэж хүчлэхгүй.
+`.trim();
+
+const DEFAULT_SYSTEM_PROMPT = "You are a helpful AI assistant for a job platform.";
+
+function normalizeGroqMessages(
+  input: string,
+  useMongoliPrompt: boolean,
+  history?: unknown,
+  systemContext?: unknown,
+): GroqMessage[] {
+  const extraSystemContext = compactText(systemContext, 1200);
+  const baseSystemPrompt = useMongoliPrompt ? CHAT_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT;
+  const systemPrompt = extraSystemContext
+    ? `${baseSystemPrompt}\n\nНэмэлт горимын заавар:\n${extraSystemContext}`
+    : baseSystemPrompt;
+  const messages: GroqMessage[] = [{ role: "system", content: systemPrompt }];
+
+  if (Array.isArray(history)) {
+    for (const item of history.slice(-16)) {
+      const role = (item as any)?.role;
+      const content = compactText((item as any)?.content ?? (item as any)?.text ?? "", 2500);
+
+      if ((role === "user" || role === "assistant") && content) {
+        messages.push({ role, content });
+      }
+    }
+  }
+
+  messages.push({ role: "user", content: input });
+  return messages;
+}
+
+async function groqRespond(
+  input: string,
+  useMongoliPrompt: boolean = true,
+  maxTokens: number = 1024,
+  history?: unknown,
+  systemContext?: unknown,
+): Promise<string | null> {
+  const messages = normalizeGroqMessages(input, useMongoliPrompt, history, systemContext);
 
   try {
     const resp = await axios.post(
       GROQ_API_URL,
       {
         model: GROQ_TEXT_MODEL,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: input },
-        ],
-        temperature: 0.7,
+        messages,
+        temperature: useMongoliPrompt ? 0.55 : 0.7,
         max_tokens: maxTokens,
       },
       {
@@ -133,14 +180,14 @@ async function groqRespond(input: string, useMongoliPrompt: boolean = true, maxT
     const responseText = data.choices?.[0]?.message?.content;
     
     if (responseText) {
-      console.log("✅ GROQ Response:", responseText.slice(0, 100));
+      console.log("âœ… GROQ Response:", responseText.slice(0, 100));
       return responseText;
     }
     
-    console.warn("⚠️ GROQ returned empty response:", JSON.stringify(data));
+    console.warn("âš ï¸ GROQ returned empty response:", JSON.stringify(data));
     return null;
   } catch (err: any) {
-    console.error("❌ GROQ API Error:", {
+    console.error("âŒ GROQ API Error:", {
       status: err.response?.status,
       statusText: err.response?.statusText,
       message: err.message,
@@ -182,7 +229,7 @@ async function groqVisionRespond(input: string, file: Express.Multer.File): Prom
 
     return (resp.data as GroqChatResponse).choices?.[0]?.message?.content ?? null;
   } catch (err: any) {
-    console.error("❌ GROQ Vision Error:", {
+    console.error("âŒ GROQ Vision Error:", {
       status: err.response?.status,
       message: err.message,
       data: err.response?.data,
@@ -214,6 +261,24 @@ function compactText(value: unknown, maxChars: number): string {
   return text.replace(/\s+/g, " ").trim().slice(0, maxChars);
 }
 
+function extractCurrentUserPrompt(rawPrompt: string): string {
+  const prompt = rawPrompt.trim();
+  const marker = "Хэрэглэгчийн асуулт:";
+  const markerIndex = prompt.lastIndexOf(marker);
+
+  if (markerIndex >= 0) {
+    return prompt.slice(markerIndex + marker.length).trim();
+  }
+
+  if (prompt.includes("JobHub") && prompt.includes("\n\n")) {
+    const lastBlock = prompt.split(/\n\s*\n/).pop()?.trim() || prompt;
+    const colonIndex = lastBlock.indexOf(":");
+    return colonIndex >= 0 ? lastBlock.slice(colonIndex + 1).trim() : lastBlock;
+  }
+
+  return prompt;
+}
+
 // ===============================
 // Multer
 // ===============================
@@ -223,18 +288,18 @@ const upload = multer({
 });
 
 // ===============================
-// 🧪 TEST ROUTE
+// ðŸ§ª TEST ROUTE
 // ===============================
 app.get("/test", async (_req, res) => {
   try {
-    console.log("🧪 Testing GROQ API...");
+    console.log("ðŸ§ª Testing GROQ API...");
     const reply = await groqRespond("What is 2+2?", false);
     res.json({
       success: true,
       reply,
     });
   } catch (e: any) {
-    console.error("❌ TEST ERROR:", e.message);
+    console.error("âŒ TEST ERROR:", e.message);
     res.status(500).json({ 
       error: e.message ?? "test failed",
       details: e.response?.data ?? null
@@ -254,21 +319,25 @@ app.get("/", (_req, res) => {
 // ===============================
 app.post("/api/ai/ask", async (req: Request, res: Response) => {
   try {
-    const prompt = req.body?.prompt?.trim() || req.body?.message?.trim();
+    const rawPrompt = req.body?.prompt?.trim() || req.body?.message?.trim();
+    const history = req.body?.history;
+    const systemContext = req.body?.systemContext || req.body?.modeContext;
 
-    if (!prompt) {
+    if (!rawPrompt) {
       return res.status(400).json({
         success: false,
-        error: "❌ prompt or message missing",
+        error: "âŒ prompt or message missing",
       });
     }
 
-    console.log("🤖 Processing AI request:", prompt.slice(0, 50));
+    const prompt = extractCurrentUserPrompt(rawPrompt);
+
+    console.log("Processing AI request:", prompt.slice(0, 50));
     
-    const answer = await groqRespond(prompt, true);
+    const answer = await groqRespond(prompt, true, 1200, history, systemContext);
 
     if (!answer) {
-      console.warn("⚠️ GROQ returned null answer for prompt:", prompt);
+      console.warn("âš ï¸ GROQ returned null answer for prompt:", prompt);
       return res.status(500).json({
         success: false,
         error: "AI service returned empty response",
@@ -280,7 +349,7 @@ app.post("/api/ai/ask", async (req: Request, res: Response) => {
       answer,
     });
   } catch (err: any) {
-    console.error("❌ ASK ERROR:", err.message);
+    console.error("âŒ ASK ERROR:", err.message);
     res.status(500).json({ 
       success: false,
       error: err.message ?? "AI request failed",
@@ -308,14 +377,37 @@ app.post("/api/ai/ask-file", upload.single("file"), async (req: Request, res: Re
     }
 
     const basePrompt = `
-Та ажлын платформын карьерийн зөвлөх AI.
+Ð¢Ð° Ð°Ð¶Ð»Ñ‹Ð½ Ð¿Ð»Ð°Ñ‚Ñ„Ð¾Ñ€Ð¼Ñ‹Ð½ ÐºÐ°Ñ€ÑŒÐµÑ€Ð¸Ð¹Ð½ Ð·Ó©Ð²Ð»Ó©Ñ… AI.
+Ð¥ÑÑ€ÑÐ³Ð»ÑÐ³Ñ‡ Ñ„Ð°Ð¹Ð», CV, Ð°Ð¶Ð»Ñ‹Ð½ Ð·Ð°Ñ€Ñ‹Ð½ Ñ…Ð¾Ð»Ð±Ð¾Ð¾Ñ ÑÑÐ²ÑÐ» Ð°Ð¶Ð»Ñ‹Ð½ Ð¼ÑÐ´ÑÑÐ»ÑÐ» Ð¸Ð»Ð³ÑÑÐ¶ Ð±Ð¾Ð»Ð½Ð¾.
+
+Ð—Ð°Ð°Ð²Ð°Ñ€:
+1. Ð—Ó©Ð²Ñ…Ó©Ð½ Ð¼Ð¾Ð½Ð³Ð¾Ð»Ð¾Ð¾Ñ€ Ñ…Ð°Ñ€Ð¸ÑƒÐ».
+2. CV Ð±Ð¾Ð»Ð¾Ð½ Ð°Ð¶Ð»Ñ‹Ð½ Ð·Ð°Ñ€Ñ‹Ð½ Ñ‚Ð¾Ñ…Ð¸Ñ€Ð»Ñ‹Ð³ Ò¯Ð½ÑÐ½ÑÑÑ€ Ð´Ò¯Ð³Ð½Ñ. Ð¥ÑÑ‚ Ð¼Ð°Ð³Ñ‚Ð°Ñ…Ð³Ò¯Ð¹.
+3. Ð¢Ð¾Ñ…Ð¸Ñ€Ð»Ñ‹Ð½ Ñ…ÑƒÐ²Ð¸Ð¹Ð³ Ð¾Ð¹Ñ€Ð¾Ð»Ñ†Ð¾Ð¾Ð³Ð¾Ð¾Ñ€ Ó©Ð³.
+4. Ð¯Ð°Ð³Ð°Ð°Ð´ Ñ‚Ð¾Ñ…Ð¸Ñ€Ñ‡/Ñ‚Ð¾Ñ…Ð¸Ñ€Ð¾Ñ…Ð³Ò¯Ð¹ Ð±Ð°Ð¹Ð³Ð°Ð°Ð³ Ñ‚Ð¾Ð²Ñ‡, Ñ‚Ð¾Ð´Ð¾Ñ€Ñ…Ð¾Ð¹ Ñ…ÑÐ».
+5. Ð”ÑƒÑ‚ÑƒÑƒ ÑƒÑ€ Ñ‡Ð°Ð´Ð²Ð°Ñ€, ÑÐ°Ð¹Ð¶Ñ€ÑƒÑƒÐ»Ð°Ñ… Ð·Ó©Ð²Ð»Ó©Ð³Ó©Ó©Ð³ Ð¶Ð°Ð³ÑÐ°Ð°.
+6. Ð”Ð¾Ð¾Ñ€Ñ… Ð°Ð¶Ð»Ñ‹Ð½ Ð¶Ð°Ð³ÑÐ°Ð°Ð»Ñ‚Ð°Ð°Ñ Ñ‚Ð¾Ñ…Ð¸Ñ€Ð¾Ñ… Ð°Ð¶Ð»ÑƒÑƒÐ´ Ð±Ð°Ð¹Ð²Ð°Ð» 3 Ñ…Ò¯Ñ€Ñ‚ÑÐ» ÑÐ°Ð½Ð°Ð» Ð±Ð¾Ð»Ð³Ð¾.
+
+Ð¥ÑÑ€ÑÐ³Ð»ÑÐ³Ñ‡Ð¸Ð¹Ð½ Ð±Ð¸Ñ‡ÑÑÐ½ Ð·Ò¯Ð¹Ð»:
+${message || "(Ð±Ð°Ð¹Ñ…Ð³Ò¯Ð¹)"}
+
+Ð¤Ð°Ð¹Ð»Ñ‹Ð½ Ð½ÑÑ€: ${file?.originalname || "(Ð±Ð°Ð¹Ñ…Ð³Ò¯Ð¹)"}
+Ð¤Ð°Ð¹Ð»Ð°Ð°Ñ ÑƒÐ½ÑˆÑÐ°Ð½ Ñ‚ÐµÐºÑÑ‚:
+${extractedText || "(Ñ‚ÐµÐºÑÑ‚ ÑƒÐ½ÑˆÐ¸Ð³Ð´Ð°Ð°Ð³Ò¯Ð¹ ÑÑÐ²ÑÐ» Ð·ÑƒÑ€Ð°Ð³ Ñ„Ð°Ð¹Ð» Ð±Ð°Ð¹Ð½Ð°)"}
+
+ÐžÐ´Ð¾Ð¾Ð³Ð¸Ð¹Ð½ Ð±Ð¾Ð»Ð¾Ð¼Ð¶Ð¸Ñ‚ Ð°Ð¶Ð»ÑƒÑƒÐ´:
+${jobsContext || "(Ð°Ð¶Ð»Ñ‹Ð½ Ð¶Ð°Ð³ÑÐ°Ð°Ð»Ñ‚ Ð¸Ñ€ÑÑÐ³Ò¯Ð¹)"}
+`;
+
+    const cleanBasePrompt = `
+Чи ажлын платформын карьерийн зөвлөх AI.
 Хэрэглэгч файл, CV, ажлын зарын холбоос эсвэл ажлын мэдээлэл илгээж болно.
 
 Заавар:
-1. Зөвхөн монголоор хариул.
+1. Монголоор хариул.
 2. CV болон ажлын зарын тохирлыг үнэнээр дүгнэ. Хэт магтахгүй.
 3. Тохирлын хувийг ойролцоогоор өг.
-4. Яагаад тохирч/тохирохгүй байгааг товч, тодорхой хэл.
+4. Яагаад тохирч эсвэл тохирохгүй байгааг товч, тодорхой хэл.
 5. Дутуу ур чадвар, сайжруулах зөвлөгөөг жагсаа.
 6. Доорх ажлын жагсаалтаас тохирох ажлууд байвал 3 хүртэл санал болго.
 
@@ -332,11 +424,11 @@ ${jobsContext || "(ажлын жагсаалт ирээгүй)"}
 
     let answer: string | null = null;
     if (file?.mimetype.startsWith("image/")) {
-      answer = await groqVisionRespond(basePrompt, file);
+      answer = await groqVisionRespond(cleanBasePrompt, file);
     }
 
     if (!answer) {
-      answer = await groqRespond(basePrompt, true);
+      answer = await groqRespond(cleanBasePrompt, true);
     }
 
     if (!answer) {
@@ -353,7 +445,7 @@ ${jobsContext || "(ажлын жагсаалт ирээгүй)"}
       extractedChars: extractedText.length,
     });
   } catch (err: any) {
-    console.error("❌ ASK-FILE ERROR:", {
+    console.error("âŒ ASK-FILE ERROR:", {
       message: err?.message,
       data: err?.response?.data,
     });
@@ -373,7 +465,7 @@ app.post("/api/ai/parse", upload.single("cv"), async (req: any, res: Response) =
       return res.status(400).json({ error: "file missing" });
     }
 
-    // түр dummy (pdf parse алдаа гаргахгүйн тулд)
+    // Ñ‚Ò¯Ñ€ dummy (pdf parse Ð°Ð»Ð´Ð°Ð° Ð³Ð°Ñ€Ð³Ð°Ñ…Ð³Ò¯Ð¹Ð½ Ñ‚ÑƒÐ»Ð´)
     const text = "Sample CV text";
 
     const ai = await groqRespond(
@@ -385,7 +477,7 @@ app.post("/api/ai/parse", upload.single("cv"), async (req: any, res: Response) =
       ai,
     });
   } catch (err: any) {
-    console.error("❌ PARSE ERROR:", err);
+    console.error("âŒ PARSE ERROR:", err);
     res.status(500).json({ error: err.message ?? "parse failed" });
   }
 });
@@ -426,7 +518,7 @@ Format the response in clear, numbered sections in Mongolian.`;
       analysis,
     });
   } catch (err: any) {
-    console.error("❌ ANALYZE-CV ERROR:", err);
+    console.error("âŒ ANALYZE-CV ERROR:", err);
     res.status(500).json({ error: err.message ?? "analyze-cv failed" });
   }
 });
@@ -438,7 +530,7 @@ Format the response in clear, numbered sections in Mongolian.`;
  * Hardened to avoid Groq 500s caused by:
  * - non-string CV payloads
  * - excessively large CV text (prompt too big / context overflow)
- * - occasional upstream “input too large” errors
+ * - occasional upstream â€œinput too largeâ€ errors
  */
 const DEFAULT_SKILL_GAP_MAX_CV_CHARS = 4000;
 
@@ -564,7 +656,7 @@ Focus on:
       err?.message ||
       "skill-gap-analysis failed";
 
-    console.error("❌ SKILL-GAP-ANALYSIS ERROR:", details);
+    console.error("âŒ SKILL-GAP-ANALYSIS ERROR:", details);
 
     const detailsString = typeof details === "string" ? details : JSON.stringify(details);
     res.status(502).json({
@@ -579,15 +671,15 @@ Focus on:
 // ===============================
 app.post("/api/ai/generate-cv", async (req: any, res: Response) => {
   try {
-    console.log("📨 CV Generate request received");
+    console.log("ðŸ“¨ CV Generate request received");
     const { personalInfo, experience, education, skills, profilePhotoBase64 } = req.body;
 
     if (!personalInfo) {
-      console.warn("⚠️ Missing personalInfo");
+      console.warn("âš ï¸ Missing personalInfo");
       return res.status(400).json({ error: "personalInfo is required" });
     }
 
-    console.log("✅ Personal Info received:", personalInfo.name);
+    console.log("âœ… Personal Info received:", personalInfo.name);
 
     // Format the data for the prompt
     const experienceText = (experience || [])
@@ -608,10 +700,10 @@ app.post("/api/ai/generate-cv", async (req: any, res: Response) => {
     const prompt = `You are a professional CV designer and HTML/CSS expert. Generate a complete, beautiful, single-file HTML CV document.
 
 CRITICAL REQUIREMENTS:
-1. Return ONLY raw HTML — no markdown, no code fences, no explanation
+1. Return ONLY raw HTML â€” no markdown, no code fences, no explanation
 2. All CSS must be embedded in <style> tags inside <head>
 3. The CV must be print-ready (A4 size, proper margins)
-4. Section titles MUST be in Mongolian: Товч танилцуулга, Ажлын туршлага, Боловсрол, Ур чадвар, Холбоо барих
+4. Section titles MUST be in Mongolian: Ð¢Ð¾Ð²Ñ‡ Ñ‚Ð°Ð½Ð¸Ð»Ñ†ÑƒÑƒÐ»Ð³Ð°, ÐÐ¶Ð»Ñ‹Ð½ Ñ‚ÑƒÑ€ÑˆÐ»Ð°Ð³Ð°, Ð‘Ð¾Ð»Ð¾Ð²ÑÑ€Ð¾Ð», Ð£Ñ€ Ñ‡Ð°Ð´Ð²Ð°Ñ€, Ð¥Ð¾Ð»Ð±Ð¾Ð¾ Ð±Ð°Ñ€Ð¸Ñ…
 5. Design must be professional, modern, ATS-friendly
 6. Use a professional layout with good spacing
 7. Color scheme: dark navy and professional accents
@@ -635,12 +727,12 @@ ${skillsText || "No skills listed"}
 
 Generate a complete, professional HTML CV document now:`;
 
-    console.log("🤖 Calling Groq API with prompt length:", prompt.length);
+    console.log("ðŸ¤– Calling Groq API with prompt length:", prompt.length);
     const generatedCV = await groqRespond(prompt, false, 3000);
 
     if (!generatedCV) {
-      console.error("❌ Groq returned null");
-      return res.status(500).json({ error: "AI-аас хариу авах боломжгүй байна" });
+      console.error("âŒ Groq returned null");
+      return res.status(500).json({ error: "AI-Ð°Ð°Ñ Ñ…Ð°Ñ€Ð¸Ñƒ Ð°Ð²Ð°Ñ… Ð±Ð¾Ð»Ð¾Ð¼Ð¶Ð³Ò¯Ð¹ Ð±Ð°Ð¹Ð½Ð°" });
     }
 
     // If we have a photo, inject it into the HTML
@@ -650,14 +742,14 @@ Generate a complete, professional HTML CV document now:`;
       finalHTML = generatedCV.replace(/<body[^>]*>/, `<body>${photoTag}`);
     }
 
-    console.log("✅ CV Generated successfully, length:", finalHTML.length);
+    console.log("âœ… CV Generated successfully, length:", finalHTML.length);
     res.json({
       success: true,
       htmlContent: finalHTML,
       message: "CV generated successfully",
     });
   } catch (err: any) {
-    console.error("❌ GENERATE-CV ERROR:", err.message);
+    console.error("âŒ GENERATE-CV ERROR:", err.message);
     res.status(500).json({ 
       error: err.message ?? "generate-cv failed",
       details: err.response?.data || err.toString()
@@ -739,7 +831,7 @@ Make sure to extract all relevant information and provide it in the above JSON f
       rawText: extraction,
     });
   } catch (err: any) {
-    console.error("❌ EXTRACT-FROM-FILE ERROR:", err);
+    console.error("âŒ EXTRACT-FROM-FILE ERROR:", err);
     res.status(500).json({ error: err.message ?? "extract-from-file failed" });
   }
 });
@@ -748,7 +840,7 @@ Make sure to extract all relevant information and provide it in the above JSON f
 // GLOBAL ERROR HANDLER
 // ===============================
 app.use((err: any, _req: Request, res: Response, _next: any) => {
-  console.error("💥 GLOBAL ERROR:", err);
+  console.error("ðŸ’¥ GLOBAL ERROR:", err);
   res.status(500).json({
     success: false,
     error: err.message ?? "internal error",
@@ -759,5 +851,5 @@ app.use((err: any, _req: Request, res: Response, _next: any) => {
 // START
 // ===============================
 app.listen(PORT, () => {
-  console.log(`🚀 http://localhost:${PORT}`);
+  console.log(`ðŸš€ http://localhost:${PORT}`);
 });

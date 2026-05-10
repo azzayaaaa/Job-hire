@@ -8,6 +8,8 @@ import SelfImprovementModal from "./SelfImprovementModal";
 import MessagesView from "../employer/MessagesView";
 import FloatingChat from "@/components/FloatingChat";
 import AiAssistantPanel from "@/components/AiAssistantPanel";
+import NotificationCenter from "@/components/NotificationCenter";
+import AccountSettingsModal from "@/components/AccountSettingsModal";
  
 import CVForm from "@/components/cv/CVForm";
 import CVPreview from "@/components/cv/CVPreview";
@@ -37,6 +39,7 @@ import {
   List,
   Building2,
   BadgeCheck,
+  Settings,
 } from "lucide-react";
 import axios from "axios";
 import { useSession, signOut } from "next-auth/react";
@@ -153,7 +156,7 @@ function hydrateJobImages(jobs: any[]) {
     const logo = employerProfile.logo || job.employer?.logo || job.employerLogo || "";
     return {
       ...job,
-      jobImage: localStorage.getItem(`jobImage_${job.id}`) || job.jobImage || "",
+      jobImage: localStorage.getItem(`jobImage_${job.id}`) || job.image || job.jobImage || "",
       employerLogo: logo,
       employer: job.employer ? { ...job.employer, logo } : job.employer,
     };
@@ -233,9 +236,11 @@ function JobCard({
   viewMode?: "list" | "grid";
 }) {
   const userId = (session?.user as any)?.id;
-  const applied = job.applications?.some(
+  const candidateApplication = job.applications?.find(
     (a: any) => Number(a.candidateId) === Number(userId)
   );
+  const applied = !!candidateApplication;
+  const isApproved = candidateApplication?.status === "APPROVED";
   const [saved, setSaved] = useState(job.isSaved || false);
   const [relTime, setRelTime] = useState(getRelativeTime(job.createdAt || new Date()));
 
@@ -260,6 +265,19 @@ function JobCard({
     } catch {
       alert("Холбоос хуулахад алдаа гарлаа.");
     }
+  };
+
+  const handleChatClick = () => {
+    if (!isApproved) {
+      alert("Ажил олгогч зөвшөөрсөн үед л чатлах хэсэг нээгдэнэ. Та түр хүлээнэ үү.");
+      return;
+    }
+
+    onChat({
+      id: job.employerId,
+      email: job.employer?.email,
+      fullName: job.employer?.fullName,
+    });
   };
 
   const salaryText =
@@ -314,10 +332,10 @@ function JobCard({
         <div className="flex items-center justify-between mt-auto pt-2 border-t border-gray-100 dark:border-[#1f2937]">
           <span className="text-sm font-bold text-emerald-500">{salaryText}</span>
           <button
-            onClick={() => onApply(job)}
+            onClick={() => (applied ? handleChatClick() : onApply(job))}
             className="px-3 py-1.5 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-500 transition-all"
           >
-            {applied ? "Илгээсэн" : "CV илгээх"}
+            {applied ? (isApproved ? "Чатлах" : "Илгээсэн") : "CV илгээх"}
           </button>
         </div>
       </div>
@@ -398,13 +416,7 @@ function JobCard({
               </button>
               {applied ? (
                 <button
-                  onClick={() =>
-                    onChat({
-                      id: job.employerId,
-                      email: job.employer?.email,
-                      fullName: job.employer?.fullName,
-                    })
-                  }
+                  onClick={handleChatClick}
                   className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#1a2035] rounded-xl hover:bg-gray-200 dark:hover:bg-[#1e2a45] transition-all flex-1 md:flex-none md:min-w-max"
                 >
                   Чатлах
@@ -533,6 +545,7 @@ function AiPanel({
   const sendAiMessage = async () => {
     if ((!aiInput.trim() && !selectedFile) || aiLoading) return;
     const userMsg = aiInput.trim();
+    const previousMessages = aiMessages;
     setAiInput("");
     const fileToSend = selectedFile;
     setSelectedFile(null);
@@ -559,7 +572,13 @@ function AiPanel({
             })(),
             { headers: { "Content-Type": "multipart/form-data" } }
           )
-        : await authenticatedPost(API_URLS.ai.ask(), { message: userMsg });
+        : await authenticatedPost(API_URLS.ai.ask(), {
+            message: userMsg,
+            history: previousMessages.slice(-12).map((msg) => ({
+              role: msg.role === "assistant" ? "assistant" : "user",
+              content: msg.text,
+            })),
+          });
       const answer = res.data?.answer || res.data?.reply;
       setAiMessages((prev) => [
         ...prev,
@@ -726,6 +745,7 @@ export default function CandidateDashboard() {
 
   const [showProfile, setShowProfile] = useState(false);
   const [showCV, setShowCV] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showJobDetail, setShowJobDetail] = useState(false);
   const [selectedJob, setSelectedJob] = useState<any>(null);
   const [showCVGenerator, setShowCVGenerator] = useState(false);
@@ -736,7 +756,12 @@ export default function CandidateDashboard() {
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
-  }, [status, router]);
+    if (status !== "authenticated" || !session?.user) return;
+
+    const userType = (session.user as any).userType?.toUpperCase();
+    if (userType === "ADMIN") router.replace("/dashboard/admin");
+    else if (userType === "EMPLOYER") router.replace("/dashboard/employer");
+  }, [session, status, router]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -796,6 +821,14 @@ export default function CandidateDashboard() {
       setShowJobDetail(true);
     }
   }, [searchParams, jobs, showJobDetail]);
+
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "messages" || tab === "applied" || tab === "saved" || tab === "all" || tab === "improvement") {
+      setActiveTab(tab);
+      setCurrentPage(1);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const userId = Number((session?.user as any)?.id);
@@ -909,6 +942,18 @@ export default function CandidateDashboard() {
     setActiveTab("messages");
   };
 
+  const closeJobDetail = useCallback(() => {
+    setShowJobDetail(false);
+    setSelectedJob(null);
+
+    const params = new URLSearchParams(searchParams.toString());
+    if (!params.has("job")) return;
+
+    params.delete("job");
+    const query = params.toString();
+    router.replace(`/dashboard/candidate${query ? `?${query}` : ""}`, { scroll: false });
+  }, [router, searchParams]);
+
   const handleApply = (job: any) => {
     if (!session?.user) return alert("Нэвтрэх");
     setSelectedJob(job);
@@ -939,7 +984,7 @@ export default function CandidateDashboard() {
         candidateId: userId,
       });
       alert("Хүсэлт илгээгдлээ!");
-      setShowJobDetail(false);
+      closeJobDetail();
       fetchData();
     } catch (err: any) {
       if (err.response?.status === 400) {
@@ -1080,12 +1125,7 @@ export default function CandidateDashboard() {
           >
             <Heart size={18} />
           </button>
-          <button
-            onClick={() => { setActiveTab("applied"); setCurrentPage(1); }}
-            className="w-9 h-9 flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-white rounded-xl transition-all"
-          >
-            <Bell size={18} />
-          </button>
+          <NotificationCenter />
           <button
             onClick={() => setAiOpen(!aiOpen)}
             className="w-9 h-9 flex items-center justify-center bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400 rounded-xl hover:bg-purple-200 dark:hover:bg-purple-500/30 transition-all"
@@ -1120,6 +1160,12 @@ export default function CandidateDashboard() {
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-[#1a2035] rounded-xl flex items-center gap-2.5"
                 >
                   <Briefcase size={14} className="text-blue-500" /> CV оруулах
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowSettings(true); setProfileOpen(false); }}
+                  className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-[#1a2035] rounded-xl flex items-center gap-2.5"
+                >
+                  <Settings size={14} className="text-blue-500" /> Тохиргоо
                 </button>
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowCVGenerator(true); setProfileOpen(false); }}
@@ -1350,7 +1396,7 @@ export default function CandidateDashboard() {
 
                 <div className="shrink-0 px-3 md:px-6 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0 border-b border-gray-100 dark:border-[#1a2235] bg-white dark:bg-[#0b1120]">
                   <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
-                    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide whitespace-nowrap">
+                    <div className="hidden md:flex items-center gap-1 overflow-x-auto scrollbar-hide whitespace-nowrap">
                       {[
                         { key: "all", label: "Бүгд", count: filteredJobs.length },
                         { key: "saved", label: "Хадгалсан", count: savedCount },
@@ -1433,7 +1479,7 @@ export default function CandidateDashboard() {
                   )}
                 </div>
 
-                <div className="shrink-0 px-3 md:px-6 py-3 md:py-4 border-t border-gray-100 dark:border-[#1a2235] flex items-center justify-center gap-1 bg-white dark:bg-[#0b1120] overflow-x-auto">
+                <div className="hidden md:flex shrink-0 px-3 md:px-6 py-3 md:py-4 border-t border-gray-100 dark:border-[#1a2235] items-center justify-center gap-1 bg-white dark:bg-[#0b1120] overflow-x-auto">
                   <button
                     onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
@@ -1473,7 +1519,12 @@ export default function CandidateDashboard() {
       </div>
 
       {/* ── AI PANEL ──────────────────────────────────────────────────────────── */}
-      <AiAssistantPanel open={aiOpen} onClose={() => setAiOpen(false)} userId={(session?.user as any)?.id} />
+      <AiAssistantPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        userId={(session?.user as any)?.id}
+        role="candidate"
+      />
       <FloatingChat />
 
       {/* ── MODALS ────────────────────────────────────────────────────────────── */}
@@ -1490,10 +1541,17 @@ export default function CandidateDashboard() {
           userId={(session?.user as any)?.id || 0}
         />
       )}
+      {showSettings && (
+        <AccountSettingsModal
+          onClose={() => setShowSettings(false)}
+          userId={(session?.user as any)?.id || 0}
+          role="candidate"
+        />
+      )}
       {showJobDetail && selectedJob && (
         <JobDetailModal
           job={selectedJob}
-          onClose={() => setShowJobDetail(false)}
+          onClose={closeJobDetail}
           onApply={handleApplyWithCV}
           userId={(session?.user as any)?.id || 0}
         />
