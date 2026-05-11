@@ -3,6 +3,10 @@ import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { cookies } from "next/headers";
 
+const authServiceUrl =
+  process.env.AUTH_SERVICE_URL?.replace(/\/$/, "") ||
+  "http://localhost:5001";
+
 const handler = NextAuth({
   providers: [
     GoogleProvider({
@@ -18,8 +22,7 @@ const handler = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         try {
-          const gatewayUrl = process.env.NEXT_PUBLIC_GATEWAY_URL?.replace(/\/$/, "") || "http://localhost:5000";
-          const res = await fetch(`${gatewayUrl}/api/auth/login`, {
+          const res = await fetch(`${authServiceUrl}/api/auth/login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(credentials),
@@ -48,10 +51,6 @@ const handler = NextAuth({
         try {
           console.log(`[NextAuth] Google sign-in attempt for: ${user.email}`);
           
-          const gatewayUrl =
-            process.env.NEXT_PUBLIC_GATEWAY_URL?.replace(/\/$/, "") ||
-            "http://localhost:5000";
-
           // Role selection transport from /register:
           // /register sets: pendingUserType=EMPLOYER|CANDIDATE (valid for 300s)
           // OAuth callback happens after redirect, so we read it server-side here.
@@ -70,7 +69,7 @@ const handler = NextAuth({
             cookieStore.delete("pendingUserType");
           } catch {}
 
-          const res = await fetch(`${gatewayUrl}/api/auth/google-login`, {
+          const res = await fetch(`${authServiceUrl}/api/auth/google-login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

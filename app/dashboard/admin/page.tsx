@@ -374,7 +374,7 @@ function AdminMobileDrawer({
       </div>
       <div className="mt-7 border-t border-white/10 pt-5">
         <p className="mb-3 px-3 text-xs font-black uppercase tracking-widest text-slate-600">
-          Ð¨ÑƒÑƒÑ€Ñ…Ð°Ð¹ Ò¯Ð¹Ð»Ð´ÑÐ»
+          Шуурхай үйлдэл
         </p>
         <div className="space-y-2">
           {quickActions.map(({ label, Icon }) => (

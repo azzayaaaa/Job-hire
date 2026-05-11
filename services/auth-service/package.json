@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "main": "src/index.ts",
   "scripts": {
+    "predev": "node ../../scripts/ensure-prisma-client.cjs prisma/schema.prisma node_modules/.prisma/auth-client",
+    "prebuild": "node ../../scripts/ensure-prisma-client.cjs prisma/schema.prisma node_modules/.prisma/auth-client",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "dev:all": "node dev-all.js",
     "build": "tsc",

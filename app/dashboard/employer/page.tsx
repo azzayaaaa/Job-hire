@@ -115,17 +115,25 @@ export default function EmployerDashboard() {
       setLoading(true);
       const userId = Number((session.user as any).id);
       
-      // Use API gateway URLs instead of direct backend calls
-      const [allJobsRes, userRes, convRes] = await Promise.all([
+      // Use API gateway URLs instead of direct backend calls. Chat is optional,
+      // so it should not block the rest of the employer dashboard.
+      const [allJobsRes, userRes] = await Promise.all([
         authenticatedFetch(API_URLS.jobs.all()),
         authenticatedFetch(API_URLS.auth.profile(userId)),
-        authenticatedFetch(API_URLS.chat.conversations(userId)),
       ]);
+
+      let conversationsData: any[] = [];
+      try {
+        const convRes = await authenticatedFetch(API_URLS.chat.conversations(userId));
+        conversationsData = convRes.data || [];
+      } catch {
+        conversationsData = [];
+      }
       
       const empJobs = hydrateEmployerImages(allJobsRes.data.filter((j: any) => Number(j.employerId) === userId));
       setJobs(empJobs);
       setCredits(userRes.data.credits);
-      setConversations(convRes.data);
+      setConversations(conversationsData);
 
       const applicationsData: any[] = [];
       for (const job of empJobs) {

@@ -48,6 +48,7 @@ import { io } from "socket.io-client";
 import {
   authenticatedFetch,
   authenticatedPost,
+  authenticatedPatch,
   authenticatedDelete,
   resetAxiosClient,
 } from "@/lib/axiosClient";
@@ -960,7 +961,7 @@ export default function CandidateDashboard() {
     setShowJobDetail(true);
   };
 
-  const handleApplyWithCV = async (jobId: number, cvData?: string) => {
+  const handleApplyWithCV = async (jobId: number, cvData?: string, cvName?: string) => {
     if (!session?.user) return alert("Нэвтрэх");
     try {
       const userId = (session.user as any).id;
@@ -973,15 +974,29 @@ export default function CandidateDashboard() {
         console.error("Could not fetch profile:", e);
       }
 
-      if (!userProfile?.cvText && !cvData) {
+      const submittedCV = cvData || userProfile?.cvText || "";
+      const submittedCVName = cvName || userProfile?.cvFileName || "candidate-cv";
+
+      if (!submittedCV) {
         alert("CV оруулаагүй байна. AI-аар үүсгүүлэх үү?");
         setShowCV(true);
         return;
       }
 
+      try {
+        await authenticatedPatch(API_URLS.user.profile(userId), {
+          cvText: submittedCV,
+          cvFileName: submittedCVName,
+        });
+      } catch (profileUpdateError) {
+        console.warn("Could not save CV to user profile before applying:", profileUpdateError);
+      }
+
       await authenticatedPost(API_URLS.jobs.apply(), {
         jobId,
         candidateId: userId,
+        cvText: submittedCV,
+        cvFileName: submittedCVName,
       });
       alert("Хүсэлт илгээгдлээ!");
       closeJobDetail();

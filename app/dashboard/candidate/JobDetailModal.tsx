@@ -100,7 +100,7 @@ export default function JobDetailModal({
 }: {
   job: JobDetail;
   onClose: () => void;
-  onApply: (jobId: number, cvData?: string) => void | Promise<void>;
+  onApply: (jobId: number, cvData?: string, cvName?: string) => void | Promise<void>;
   userId: number;
 }) {
   const storageKey = `userCV_${userId}`;
@@ -238,7 +238,7 @@ export default function JobDetailModal({
         localStorage.setItem(storageKey, currentCV);
       }
 
-      await onApply(job.id, cvData);
+      await onApply(job.id, cvData, cvName);
     } finally {
       setApplying(false);
     }

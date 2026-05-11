@@ -65,6 +65,7 @@ export default function FloatingChat() {
 
   const chatSocketRef = useRef<Socket | null>(null);
   const [socketReady, setSocketReady] = useState(false);
+  const [chatAvailable, setChatAvailable] = useState(false);
 
   const scrollToInputFnRef = useRef<() => void>(() => {});
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -88,8 +89,12 @@ export default function FloatingChat() {
         const res = await authenticatedFetch(API_URLS.chat.conversations(userId));
         if (cancelled) return;
         setConversations(res.data || []);
+        setChatAvailable(true);
       } catch (e) {
-        console.error("Failed to fetch conversations:", e);
+        if (!cancelled) {
+          setConversations([]);
+          setChatAvailable(false);
+        }
       }
     };
 
@@ -103,7 +108,7 @@ export default function FloatingChat() {
   }, [userId]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId || !chatAvailable) return;
 
     const socket = io(API_URLS.sockets.chat(), {
       reconnectionAttempts: 3,
@@ -128,7 +133,7 @@ export default function FloatingChat() {
       socket.disconnect();
       chatSocketRef.current = null;
     };
-  }, [userId]);
+  }, [userId, chatAvailable]);
 
   const ensurePanelAndSelectFirst = () => {
     if (panelOpen) return;

@@ -232,6 +232,15 @@ export default function ChatWindow({
         const mergedMessages = mergeMessages(cachedMessages, (res.data || []) as ChatMessage[]);
         setMessages(mergedMessages);
         saveCachedMessages(mergedMessages);
+        mergedMessages
+          .filter(
+            (msg) =>
+              msg.id &&
+              Number(msg.senderId) === Number(receiver.id) &&
+              Number(msg.receiverId) === senderIdNum &&
+              !(msg.seen ?? msg.isRead),
+          )
+          .forEach((msg) => markAsSeen(msg.id));
         scrollToBottom();
       } catch (error) {
         console.error("Failed to fetch chat history:", error);
@@ -286,10 +295,7 @@ export default function ChatWindow({
   // Mark message as seen
   const markAsSeen = async (messageId: number) => {
     try {
-      await authenticatedPost(
-        `http://localhost:5007/api/chat/messages/${messageId}/seen`,
-        {}
-      );
+      await authenticatedPost(API_URLS.chat.seen(messageId), {});
       setMessages((prev) =>
         prev.map((m) => (m.id === messageId ? { ...m, seen: true, isRead: true } : m))
       );
@@ -304,7 +310,11 @@ export default function ChatWindow({
 
     const onSeen = (data: any) => {
       setMessages((prev) =>
-        prev.map((m) => (m.id === data.messageId ? { ...m, seen: true, isRead: true } : m))
+        prev.map((m) =>
+          m.id === data.messageId && m.senderId === senderIdNum
+            ? { ...m, seen: true, isRead: true }
+            : m,
+        )
       );
     };
 

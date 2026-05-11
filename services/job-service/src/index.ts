@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import hpp from 'hpp';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './lib/prismaClient';
 import axios from 'axios';
 import Queue from 'bull';
 
@@ -290,7 +290,7 @@ app.post('/api/jobs/create', async (req, res) => {
   }
 });
 app.post('/api/jobs/apply', async (req, res) => {
-  const { jobId, candidateId } = req.body;
+  const { jobId, candidateId, cvText, cvFileName } = req.body;
   console.log(`[Job Service] POST /api/jobs/apply - Candidate ${candidateId} applying for job ${jobId}`);
 
   const parsedJobId = Number(jobId);
@@ -303,6 +303,18 @@ app.post('/api/jobs/apply', async (req, res) => {
   try {
     const job = await prisma.job.findUnique({ where: { id: parsedJobId } });
     if (!job) return res.status(404).json({ error: "Job not found" });
+
+    const submittedCV = typeof cvText === 'string' ? cvText : '';
+    const submittedCVName = typeof cvFileName === 'string' ? cvFileName : undefined;
+    if (submittedCV) {
+      await prisma.user.update({
+        where: { id: parsedCandidateId },
+        data: {
+          cvText: submittedCV,
+          ...(submittedCVName ? { cvFileName: submittedCVName } : {})
+        }
+      });
+    }
 
     const application = await prisma.jobApplication.create({
       data: {
@@ -371,15 +383,25 @@ app.post('/api/jobs/submit-cv', async (req, res) => {
     const job = await prisma.job.findUnique({ where: { id: parsedJobId } });
     if (!job) return res.status(404).json({ error: "Job not found" });
 
+    const submittedCV = typeof cvData === 'string' ? cvData : '';
+    const submittedCVName = typeof cvName === 'string' ? cvName : undefined;
+    if (submittedCV) {
+      await prisma.user.update({
+        where: { id: parsedCandidateId },
+        data: {
+          cvText: submittedCV,
+          ...(submittedCVName ? { cvFileName: submittedCVName } : {})
+        }
+      });
+    }
+
     // Store CV submission in the system
     const cvSubmission = await prisma.jobApplication.create({
       data: {
         jobId: parsedJobId,
         candidateId: parsedCandidateId,
         matchScore: 0, // Will be calculated by employer/AI
-        feedback: "CV submitted directly by candidate",
-        // Store CV data as JSON if available
-        cvData: cvData || null
+        feedback: "CV submitted directly by candidate"
       }
     });
 

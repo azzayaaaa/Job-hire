@@ -35,7 +35,6 @@ const isAllowedLocalOrigin = (origin?: string): boolean => {
   }
 };
 
-// ✅ CORS тохиргоо
 app.use(cors({
   origin: (origin, callback) => {
     if (isAllowedLocalOrigin(origin)) {
@@ -53,16 +52,16 @@ app.use(cors({
 app.use(morgan('dev'));
 
 const services = [
-  { path: '/api/auth', target: 'http://127.0.0.1:5001' },
-  { path: '/api/jobs', target: 'http://127.0.0.1:5003' },
-  { path: '/api/ai', target: 'http://127.0.0.1:5004' },
-  { path: '/api/users', target: 'http://127.0.0.1:5005' },
-  { path: '/api/notifications', target: 'http://127.0.0.1:5005' },
-  { path: '/api/notify', target: 'http://127.0.0.1:5006' },
-  { path: '/api/chat', target: 'http://127.0.0.1:5007' },
+  { path: '/api/auth', target: 'http://localhost:5001' },
+  { path: '/api/jobs', target: 'http://localhost:5003' },
+  { path: '/api/ai', target: 'http://localhost:5004' },
+  { path: '/api/users', target: 'http://localhost:5005' },
+  { path: '/api/notifications', target: 'http://localhost:5005' },
+  { path: '/api/notify', target: 'http://localhost:5006' },
+  { path: '/api/chat', target: 'http://localhost:5007' },
 ];
 
-services.forEach(service => {
+services.forEach((service) => {
   app.use(service.path, createProxyMiddleware({
     target: service.target,
     changeOrigin: true,
@@ -77,5 +76,5 @@ services.forEach(service => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 API Gateway running on http://0.0.0.0:${PORT}`);
+  console.log(`API Gateway running on http://0.0.0.0:${PORT}`);
 });

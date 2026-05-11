@@ -213,6 +213,7 @@ export default function LoginPage() {
               src="/zuragaa.png"
               alt="Preview"
               fill
+              sizes="(min-width: 768px) 45vw, 100vw"
               priority
               className="object-contain"
             />
@@ -373,7 +374,11 @@ export default function LoginPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      signIn("google", { callbackUrl: getOAuthCallbackUrl() })
+                      signIn(
+                        "google",
+                        { callbackUrl: getOAuthCallbackUrl() },
+                        { prompt: "select_account" },
+                      )
                     }
                     className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/5 bg-white/5 py-3.5 transition-all hover:bg-white/10"
                   >

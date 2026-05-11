@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
 import hpp from 'hpp';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './lib/prismaClient';
 
 dotenv.config();
 const app = express();

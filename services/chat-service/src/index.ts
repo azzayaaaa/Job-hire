@@ -3,7 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import morgan from 'morgan';
 import helmet from 'helmet';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from './lib/prismaClient';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 

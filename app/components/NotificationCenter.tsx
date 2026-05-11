@@ -39,6 +39,10 @@ export default function NotificationCenter() {
       const res = await axios.get(API_URLS.notifications.list(userId));
       setNotifications(res.data || []);
     } catch (error: any) {
+      if (!error?.response) {
+        setNotifications([]);
+        return;
+      }
       if (error?.response?.status === 404) {
         if (!hasLogged404Ref.current) {
           console.warn("Notifications endpoint returned 404 (treating as empty).");
@@ -57,6 +61,10 @@ export default function NotificationCenter() {
       const res = await axios.get(API_URLS.notifications.unreadCount(userId));
       setUnreadCount(res.data.unreadCount || 0);
     } catch (error: any) {
+      if (!error?.response) {
+        setUnreadCount(0);
+        return;
+      }
       if (error?.response?.status === 404) {
         if (!hasLogged404Ref.current) {
           console.warn("Unread-count endpoint returned 404 (treating as 0 unread).");

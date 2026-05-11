@@ -31,12 +31,28 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+const emailStrictMode = process.env.EMAIL_STRICT === 'true';
+
+function isEmailConfigured() {
+  return Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+}
+
+function getEmailSetupMessage(error?: any) {
+  const reason = error?.message ? ` ${error.message}` : '';
+  return `Email not sent.${reason} For Gmail, EMAIL_PASS must be a Gmail App Password, not the normal account password.`;
+}
+
 // Worker Logic: Queue-ээс даалгавар авч гүйцэтгэх
 notificationQueue.process(async (job) => {
   const { to, subject, html } = job.data;
   console.log(`[Notify Worker] Processing notification to: ${to}`);
   
   try {
+    if (!isEmailConfigured()) {
+      console.warn('[Notify Worker] Email skipped: EMAIL_USER or EMAIL_PASS is missing.');
+      return;
+    }
+
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to,
@@ -45,8 +61,8 @@ notificationQueue.process(async (job) => {
     });
     console.log(`[Notify Worker] Email sent successfully to: ${to}`);
   } catch (error: any) {
-    console.error(`[Notify Worker] Failed to send email: ${error.message}`);
-    throw error;
+    console.warn(`[Notify Worker] ${getEmailSetupMessage(error)}`);
+    if (emailStrictMode) throw error;
   }
 });
 
@@ -54,6 +70,11 @@ app.post('/api/notify/send-email', async (req, res) => {
   const { to, subject, html } = req.body;
   
   try {
+    if (!isEmailConfigured()) {
+      console.warn('[Notify Service] Email skipped: EMAIL_USER or EMAIL_PASS is missing.');
+      return res.status(202).json({ success: false, skipped: true, message: 'Email is not configured' });
+    }
+
     await transporter.sendMail({
       from: process.env.EMAIL_USER,
       to,
@@ -63,8 +84,13 @@ app.post('/api/notify/send-email', async (req, res) => {
     console.log(`[Notify Service] 200 OK - Email sent to: ${to}`);
     res.status(200).json({ success: true, message: "Email sent successfully" });
   } catch (error: any) {
-    console.error("[Notify Service] Email Error:", error.message);
-    res.status(500).json({ error: "Failed to send email" });
+    console.warn(`[Notify Service] ${getEmailSetupMessage(error)}`);
+    const status = emailStrictMode ? 500 : 202;
+    res.status(status).json({
+      success: false,
+      skipped: !emailStrictMode,
+      error: emailStrictMode ? 'Failed to send email' : 'Email credentials are not accepted',
+    });
   }
 });
 

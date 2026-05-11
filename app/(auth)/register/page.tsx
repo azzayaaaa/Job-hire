@@ -132,7 +132,14 @@ export default function RegisterPage() {
             </div>
           </div>
           <div className={`relative z-10 h-32 md:h-80 w-full transition-all duration-1000 delay-300 animate-float ${isLoaded ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
-            <Image src="/zuragaa.png" alt="Preview" fill priority className="object-contain" />
+            <Image
+              src="/zuragaa.png"
+              alt="Preview"
+              fill
+              sizes="(min-width: 768px) 45vw, 100vw"
+              priority
+              className="object-contain"
+            />
           </div>
         </div>
 
@@ -201,7 +208,11 @@ export default function RegisterPage() {
                     type="button" 
                     onClick={() => {
                       document.cookie = `pendingUserType=${userType.toUpperCase()}; path=/; max-age=300; SameSite=Lax`;
-                      signIn("google", { callbackUrl: "/dashboard" });
+                      signIn(
+                        "google",
+                        { callbackUrl: "/dashboard" },
+                        { prompt: "select_account" },
+                      );
                     }}
                     className="w-full bg-white/5 border border-white/5 rounded-2xl py-3.5 flex items-center justify-center gap-3 hover:bg-white/10 transition-all group"
                   >

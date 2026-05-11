@@ -60,9 +60,14 @@ export const getAxiosClient = (): AxiosInstance => {
       const errorCode = error.code;
       const errorMessage = error.message;
       const status = error.response?.status;
+      const requestUrl = String(error.config?.url || "");
+      const isOptionalChatPoll =
+        status === 504 && requestUrl.includes("/api/chat/conversations/");
 
       // Log different error types
-      if (status === 401) {
+      if (isOptionalChatPoll) {
+        console.debug("Chat service unavailable; conversations will retry later.");
+      } else if (status === 401) {
         console.warn('Unauthorized (401): Session may have expired');
       } else if (errorCode === 'ECONNABORTED') {
         console.error('Request timeout (30s exceeded) - server may be unresponsive');

@@ -3,7 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import {
   BadgeCheck,
   Briefcase,
@@ -302,6 +302,15 @@ export default function LandingPage() {
     });
   };
 
+  const handleDashboardClick = async () => {
+    if (status === "authenticated") {
+      await signOut({ callbackUrl: "/login?selectAccount=1" });
+      return;
+    }
+
+    router.push("/login?selectAccount=1");
+  };
+
   const handleCopyJobLink = async (job: JobForLanding) => {
     const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
     const text = `${origin}/dashboard/candidate?job=${job.id}`;
@@ -335,12 +344,13 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-2">
             {status === "authenticated" ? (
-              <Link
-                href={getDashboardPath((session?.user as any)?.userType)}
+              <button
+                type="button"
+                onClick={handleDashboardClick}
                 className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-blue-700"
               >
                 Dashboard
-              </Link>
+              </button>
             ) : (
               <>
                 <Link href="/login" className="rounded-xl px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-100">
