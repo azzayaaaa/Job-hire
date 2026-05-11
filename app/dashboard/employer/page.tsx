@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { flushSync } from "react-dom";
 import DashboardLayout from "../DashboardLayout";
 import EmployerProfileModal from "./EmployerProfileModal";
@@ -63,7 +63,7 @@ function generateChartData(applications: any[]) {
   return last7Days;
 }
 
-export default function EmployerDashboard() {
+function EmployerDashboardContent() {
   const { data: session, status } = useSession();
   const searchParams = useSearchParams();
   const router       = useRouter();
@@ -683,6 +683,20 @@ export default function EmployerDashboard() {
         </div>
       </nav>
     </DashboardLayout>
+  );
+}
+
+export default function EmployerDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid h-screen place-items-center bg-[#050b14]">
+          <Loader2 className="animate-spin text-[#4f67ff]" />
+        </div>
+      }
+    >
+      <EmployerDashboardContent />
+    </Suspense>
   );
 }
 

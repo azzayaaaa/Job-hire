@@ -13,7 +13,7 @@ import AccountSettingsModal from "@/components/AccountSettingsModal";
  
 import CVForm from "@/components/cv/CVForm";
 import CVPreview from "@/components/cv/CVPreview";
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useMemo, useRef, useCallback } from "react";
 import DashboardLayout from "../DashboardLayout";
 import {
   Search,
@@ -703,7 +703,7 @@ function AiPanel({
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
-export default function CandidateDashboard() {
+function CandidateDashboardContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1627,6 +1627,20 @@ export default function CandidateDashboard() {
         </div>
       </nav>
     </DashboardLayout>
+  );
+}
+
+export default function CandidateDashboard() {
+  return (
+    <Suspense
+      fallback={
+        <div className="grid h-screen place-items-center bg-[#050b14]">
+          <Loader2 className="animate-spin text-[#4f67ff]" />
+        </div>
+      }
+    >
+      <CandidateDashboardContent />
+    </Suspense>
   );
 }
 
