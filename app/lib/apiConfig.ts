@@ -10,20 +10,21 @@ const browserOrigin =
     ? `${window.location.protocol}//${window.location.hostname}`
     : "http://localhost";
 
+const cleanBase = (value?: string) => value?.replace(/\/$/, "");
+
 const useGateway = process.env.NEXT_PUBLIC_USE_GATEWAY === "true";
 const gatewayBase =
-  process.env.NEXT_PUBLIC_GATEWAY_URL?.replace(/\/$/, "") ||
-  `${browserOrigin}:5000`;
+  cleanBase(process.env.NEXT_PUBLIC_GATEWAY_URL) || `${browserOrigin}:5000`;
 
-const serviceBase = (port: number) =>
-  useGateway ? gatewayBase : `${browserOrigin}:${port}`;
+const serviceBase = (port: number, envUrl?: string) =>
+  useGateway ? gatewayBase : cleanBase(envUrl) || `${browserOrigin}:${port}`;
 
-const authBase = serviceBase(5001);
-const jobBase = serviceBase(5003);
-const aiBase = serviceBase(5004);
-const userBase = serviceBase(5005);
-const notifyBase = serviceBase(5006);
-const chatBase = serviceBase(5007);
+const authBase = serviceBase(5001, process.env.NEXT_PUBLIC_AUTH_URL);
+const jobBase = serviceBase(5003, process.env.NEXT_PUBLIC_JOB_URL);
+const aiBase = serviceBase(5004, process.env.NEXT_PUBLIC_AI_URL);
+const userBase = serviceBase(5005, process.env.NEXT_PUBLIC_USER_URL);
+const notifyBase = serviceBase(5006, process.env.NEXT_PUBLIC_NOTIFY_URL);
+const chatBase = serviceBase(5007, process.env.NEXT_PUBLIC_CHAT_URL);
 
 export const API_URLS = {
   auth: {
@@ -37,6 +38,12 @@ export const API_URLS = {
     verify: () => `${authBase}/api/auth/verify`,
     forgotPassword: () => `${authBase}/api/auth/forgot-password`,
     resetPassword: () => `${authBase}/api/auth/reset-password`,
+    adminStats: () => `${authBase}/api/auth/admin/stats`,
+    adminUsers: () => `${authBase}/api/auth/admin/users`,
+    adminUpdateRole: () => `${authBase}/api/auth/admin/update-role`,
+    adminUpdatePlan: () => `${authBase}/api/auth/admin/update-plan`,
+    adminDeleteUser: (userId: number | string) =>
+      `${authBase}/api/auth/admin/users/${userId}`,
   },
 
   jobs: {
@@ -70,6 +77,8 @@ export const API_URLS = {
     send: () => `${chatBase}/api/chat/send`,
     seen: (messageId: number | string) =>
       `${chatBase}/api/chat/messages/${messageId}/seen`,
+    reaction: (messageId: number | string) =>
+      `${chatBase}/api/chat/messages/${messageId}/reaction`,
     clear: (user1: number | string, user2: number | string) =>
       `${chatBase}/api/chat/clear/${user1}/${user2}`,
   },
@@ -82,6 +91,7 @@ export const API_URLS = {
     analyzeCv: () => `${aiBase}/api/ai/analyze-cv`,
     matchCvToJob: () => `${aiBase}/api/ai/match-cv-to-job`,
     generateCv: () => `${aiBase}/api/ai/generate-cv`,
+    generateRoadmap: () => `${aiBase}/api/ai/generate-roadmap`,
   },
 
   notify: {
@@ -110,7 +120,7 @@ export const API_URLS = {
   },
 
   sockets: {
-    chat: () => `${browserOrigin}:5007`,
-    auth: () => `${browserOrigin}:5001`,
+    chat: () => cleanBase(process.env.NEXT_PUBLIC_CHAT_SOCKET_URL) || chatBase,
+    auth: () => cleanBase(process.env.NEXT_PUBLIC_AUTH_SOCKET_URL) || authBase,
   },
 } as const;

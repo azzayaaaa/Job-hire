@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { X, Mail, Phone, Globe, MapPin, Building2, FileText, ImagePlus } from "lucide-react";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
+import { API_URLS } from "@/lib/apiConfig";
 import { compressImageDataUrl, compressImageFile, safeSetLocalStorage } from "@/lib/imageStorage";
 import { useAlert } from "@/components/AlertProvider";
 
@@ -45,7 +46,7 @@ export default function EmployerProfileModal({
       }
 
       // If not in localStorage, fetch from backend
-      const res = await authenticatedFetch(`http://localhost:5001/api/auth/profile/${userId}`);
+      const res = await authenticatedFetch(API_URLS.auth.profile(userId));
       if (res.data) {
         const profileData = {
           fullName: res.data.fullName || "",
@@ -121,7 +122,7 @@ export default function EmployerProfileModal({
       
       // Send to backend (all employer profile fields)
       try {
-        await authenticatedPost(`http://localhost:5001/api/auth/update-profile`, {
+        await authenticatedPost(API_URLS.auth.updateProfile(), {
           userId,
           fullName: nextFormData.fullName,
           email: nextFormData.email,

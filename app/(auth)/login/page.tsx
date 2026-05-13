@@ -9,6 +9,7 @@ import axios, { AxiosError } from "axios";
 import Image from "next/image";
 import { useLanguage } from "../../Providers";
 import { useAlert } from "@/components/AlertProvider";
+import { API_URLS } from "@/lib/apiConfig";
 
 
 type ErrorResponse = {
@@ -124,7 +125,7 @@ function LoginPageContent() {
   const handleForgotPassword = async () => {
     try {
       setLoading(true);
-      await axios.post("http://localhost:5001/api/auth/forgot-password", {
+      await axios.post(API_URLS.auth.forgotPassword(), {
         email,
       });
       setForgotStep(2);
@@ -143,7 +144,7 @@ function LoginPageContent() {
 
     try {
       setLoading(true);
-      const res = await axios.post("http://localhost:5001/api/auth/verify", {
+      const res = await axios.post(API_URLS.auth.verify(), {
         email,
         code: resetCode,
       });
@@ -167,7 +168,7 @@ function LoginPageContent() {
 
     try {
       setLoading(true);
-      await axios.post("http://localhost:5001/api/auth/reset-password", {
+      await axios.post(API_URLS.auth.resetPassword(), {
         email,
         code: resetCode,
         newPassword,

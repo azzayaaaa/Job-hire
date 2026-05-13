@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Circle, Edit2, MessageSquare, MoreVertical, Search, Trash2, User } from "lucide-react";
 import ChatWindow from "./ChatWindow";
 import { authenticatedDelete } from "@/lib/axiosClient";
+import { API_URLS } from "@/lib/apiConfig";
 
 export default function MessagesView({
   conversations,
@@ -80,7 +81,7 @@ export default function MessagesView({
     setContextMenu(null);
     if (!window.confirm("Энэ чатыг устгах уу?")) return;
     try {
-      await authenticatedDelete(`http://localhost:5007/api/chat/clear/${senderId}/${convId}`);
+      await authenticatedDelete(API_URLS.chat.clear(senderId, convId));
       window.location.reload();
     } catch (err) {
       console.error("Delete failed:", err);

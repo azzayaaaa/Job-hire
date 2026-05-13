@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import axios from "axios";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { API_URLS } from "@/lib/apiConfig";
 import { 
   Plus, 
   Trash2, 
@@ -394,7 +395,7 @@ export default function TodoApp({
     setRoadmapMessage("");
 
     try {
-      const response = await axios.post("http://localhost:5004/api/ai/generate-roadmap", {
+      const response = await axios.post(API_URLS.ai.generateRoadmap(), {
         topic,
         days: 30,
         userId,
@@ -461,7 +462,7 @@ export default function TodoApp({
 
     setLessonLoadingId(todo.id);
     try {
-      const response = await axios.post("http://localhost:5004/api/ai/ask", {
+      const response = await axios.post(API_URLS.ai.ask(), {
         systemContext:
           "Чи JobHub-ийн AI багш. Хариултаа сурагч шууд ойлгож, туршиж болохоор Монгол хэлээр бич.",
         message: `
@@ -527,7 +528,7 @@ ${todo.description || "Тайлбар байхгүй"}
     setQuizError("");
 
     try {
-      const response = await axios.post("http://localhost:5004/api/ai/ask", {
+      const response = await axios.post(API_URLS.ai.ask(), {
         systemContext:
           "Чи сургалтын шалгалт бэлддэг AI. Зөвхөн хүчинтэй JSON массив буцаа.",
         message: `
