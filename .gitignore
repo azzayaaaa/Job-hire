@@ -51,3 +51,6 @@ dev-server*.log
 next-env.d.ts
 
 .vercel
+
+# TypeScript dev/build spillover generated inside auth-service source tree
+services/auth-service/src/**/*.js
