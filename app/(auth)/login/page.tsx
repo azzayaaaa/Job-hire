@@ -8,6 +8,7 @@ import { Eye, EyeOff, Mail, Lock, Loader2, ArrowLeft } from "lucide-react";
 import axios, { AxiosError } from "axios";
 import Image from "next/image";
 import { useLanguage } from "../../Providers";
+import { useAlert } from "@/components/AlertProvider";
 
 
 type ErrorResponse = {
@@ -51,6 +52,7 @@ function getAxiosErrorMessage(error: unknown, fallback: string): string {
 
 function LoginPageContent() {
   const { t } = useLanguage();
+  const { showAlert } = useAlert();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPass, setShowPass] = useState(false);
@@ -170,7 +172,7 @@ function LoginPageContent() {
         code: resetCode,
         newPassword,
       });
-      alert(t.resetSuccess);
+      showAlert(t.resetSuccess, "success");
       setForgotStep(0);
     } catch (error: unknown) {
       setError(getAxiosErrorMessage(error, "Алдаа гарлаа"));
@@ -180,12 +182,12 @@ function LoginPageContent() {
   };
 
   return (
-    <div className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-[#050810] font-sans text-white">
+    <div className="relative flex min-h-[100dvh] w-full items-stretch justify-center overflow-x-hidden overflow-y-auto bg-[#050810] font-sans text-white">
       <div className="pointer-events-none absolute top-[-10%] left-[-10%] h-[40%] w-[40%] rounded-full bg-[#4F67FF]/10 blur-[120px]"></div>
       <div className="pointer-events-none absolute right-[-10%] bottom-[-10%] h-[40%] w-[40%] rounded-full bg-[#4F67FF]/10 blur-[120px]"></div>
 
-      <div className="relative flex h-full w-full animate-in flex-col overflow-hidden rounded-xl border border-white/5 bg-[#080D1D]/50 shadow-[0_0_100px_rgba(0,0,0,0.5)] fade-in zoom-in duration-700 md:flex-row">
-        <div className="h-auto w-full shrink-0 bg-gradient-to-br from-[#190e5b] to-[#080D1D] p-6 md:h-full md:w-[45%] md:p-12">
+      <div className="relative flex min-h-[100dvh] w-full animate-in flex-col overflow-visible rounded-xl border border-white/5 bg-[#080D1D]/50 shadow-[0_0_100px_rgba(0,0,0,0.5)] fade-in zoom-in duration-700 md:flex-row md:overflow-hidden">
+        <div className="h-auto w-full shrink-0 bg-gradient-to-br from-[#190e5b] to-[#080D1D] p-5 sm:p-6 md:min-h-[100dvh] md:w-[45%] md:p-12">
           <div className="animate-slide-up text-center md:mb-10 md:text-left">
             <div
               style={{
@@ -220,7 +222,7 @@ function LoginPageContent() {
           </div>
         </div>
 
-        <div className="z-[2] flex flex-1 flex-col justify-center overflow-y-auto p-6 md:overflow-visible md:p-12 lg:p-16">
+        <div className="z-[2] flex min-h-0 flex-1 flex-col justify-start overflow-y-visible p-5 sm:p-6 md:justify-center md:overflow-y-auto md:p-12 lg:p-16">
           <div className="mx-auto w-full max-w-[360px] py-4">
             <div className="mb-10 flex items-center justify-between">
               <Link

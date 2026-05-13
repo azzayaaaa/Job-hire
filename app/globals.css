@@ -35,6 +35,56 @@ body {
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
+* {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+}
+
+pre,
+code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+table {
+  max-width: 100%;
+}
+
+@media (max-width: 767px) {
+  [class*="md:grid-cols"],
+  [class*="lg:grid-cols"],
+  [class*="xl:grid-cols"] {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  [class*="md:flex-row"],
+  [class*="lg:flex-row"],
+  [class*="xl:flex-row"] {
+    flex-direction: column !important;
+  }
+
+  [class*="md:w-["],
+  [class*="lg:w-["],
+  [class*="xl:w-["],
+  [class*="md:max-w-["],
+  [class*="lg:max-w-["],
+  [class*="xl:max-w-["] {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+}
+
 /* Global Animations */
 @keyframes fadeIn {
   from { opacity: 0; }

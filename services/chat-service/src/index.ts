@@ -24,6 +24,60 @@ const onlineSocketsByUserId = new Map<number, Set<string>>();
 const lastActiveAtByUserId = new Map<number, string>();
 const messageReactionsById = new Map<number, { reaction: string; reactionById: number }>();
 const CHAT_META_PREFIX = '__JOBHUB_CHAT_META__:';
+const CHAT_ATTACHMENT_PREFIX = '__JOBHUB_CHAT_ATTACHMENT__:';
+
+async function ensureChatMessageCapacity() {
+  try {
+    await prisma.$executeRawUnsafe('ALTER TABLE ChatMessage MODIFY message LONGTEXT NOT NULL');
+  } catch (error) {
+    console.warn('Could not ensure ChatMessage.message LONGTEXT:', error);
+  }
+}
+
+function decodeAttachmentPayload(text: string) {
+  if (!text?.startsWith(CHAT_ATTACHMENT_PREFIX)) {
+    return {
+      text,
+      imageDataUrl: null,
+      videoDataUrl: null,
+      fileDataUrl: null,
+      fileName: null,
+      fileSizeBytes: null,
+      fileMimeType: null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(text.slice(CHAT_ATTACHMENT_PREFIX.length));
+    return {
+      text: String(parsed?.text || ''),
+      imageDataUrl: parsed?.imageDataUrl ? String(parsed.imageDataUrl) : null,
+      videoDataUrl: parsed?.videoDataUrl ? String(parsed.videoDataUrl) : null,
+      fileDataUrl: parsed?.fileDataUrl ? String(parsed.fileDataUrl) : null,
+      fileName: parsed?.fileName ? String(parsed.fileName) : null,
+      fileSizeBytes: Number.isFinite(Number(parsed?.fileSizeBytes)) ? Number(parsed.fileSizeBytes) : null,
+      fileMimeType: parsed?.fileMimeType ? String(parsed.fileMimeType) : null,
+    };
+  } catch {
+    return {
+      text,
+      imageDataUrl: null,
+      videoDataUrl: null,
+      fileDataUrl: null,
+      fileName: null,
+      fileSizeBytes: null,
+      fileMimeType: null,
+    };
+  }
+}
+
+function getConversationPreview(decoded: any) {
+  if (decoded?.text) return decoded.text;
+  if (decoded?.imageDataUrl) return 'Зураг';
+  if (decoded?.videoDataUrl) return 'Бичлэг';
+  if (decoded?.fileName) return decoded.fileName;
+  return '';
+}
 
 function encodeMessage(
   message: string,
@@ -45,13 +99,14 @@ function encodeMessage(
 
 function decodeMessage(message: string) {
   if (!message?.startsWith(CHAT_META_PREFIX)) {
-    return { text: message || '', replyToId: null, replyPreview: null, reaction: null, reactionById: null };
+    return { ...decodeAttachmentPayload(message || ''), replyToId: null, replyPreview: null, reaction: null, reactionById: null };
   }
 
   try {
     const parsed = JSON.parse(message.slice(CHAT_META_PREFIX.length));
+    const attachment = decodeAttachmentPayload(String(parsed?.text || ''));
     return {
-      text: String(parsed?.text || ''),
+      ...attachment,
       replyToId: parsed?.replyToId ? Number(parsed.replyToId) : null,
       replyPreview: parsed?.replyPreview ? String(parsed.replyPreview) : null,
       reaction: parsed?.reaction ? String(parsed.reaction) : null,
@@ -69,6 +124,12 @@ function formatMessageForClient(message: any) {
   return {
     ...message,
     message: decoded.text,
+    imageDataUrl: decoded.imageDataUrl,
+    videoDataUrl: decoded.videoDataUrl,
+    fileDataUrl: decoded.fileDataUrl,
+    fileName: decoded.fileName,
+    fileSizeBytes: decoded.fileSizeBytes,
+    fileMimeType: decoded.fileMimeType,
     replyToId: decoded.replyToId,
     replyPreview: decoded.replyPreview,
     reaction: reaction?.reaction || decoded.reaction || null,
@@ -99,7 +160,8 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(morgan('dev'));
 
 // Socket.io logic
@@ -161,10 +223,14 @@ app.get('/api/chat/conversations/:userId', async (req, res) => {
     });
 
     const latestMessageByContactId = new Map<number, any>();
+    const unreadCountByContactId = new Map<number, number>();
     messages.forEach(m => {
       const contactId = m.senderId !== Number(userId) ? m.senderId : m.receiverId;
       if (!latestMessageByContactId.has(contactId)) {
         latestMessageByContactId.set(contactId, m);
+      }
+      if (m.receiverId === Number(userId) && !m.isRead) {
+        unreadCountByContactId.set(contactId, (unreadCountByContactId.get(contactId) || 0) + 1);
       }
     });
 
@@ -192,8 +258,9 @@ app.get('/api/chat/conversations/:userId', async (req, res) => {
           fullName: contact.fullName,
           phone: contact.phone,
           userType: contact.userType,
-          lastMessage: decodeMessage(lastMessage?.message || '').text,
+          lastMessage: getConversationPreview(decodeMessage(lastMessage?.message || '')),
           lastMessageAt: lastMessage?.createdAt,
+          unreadCount: unreadCountByContactId.get(contactId) || 0,
           isOnline: getPresence(contact.id).isOnline,
           lastActiveAt: getPresence(contact.id).lastActiveAt,
         };
@@ -315,8 +382,16 @@ app.post('/api/chat/messages/:messageId/seen', async (req, res) => {
   }
 
   try {
-    const message = await prisma.chatMessage.update({
+    const existing = await prisma.chatMessage.findUnique({
       where: { id: parsedMessageId },
+    });
+
+    if (!existing) {
+      return res.status(200).json({ success: true, skipped: true, reason: 'Message not found' });
+    }
+
+    const message = await prisma.chatMessage.update({
+      where: { id: existing.id },
       data: { isRead: true }
     });
 
@@ -355,6 +430,8 @@ app.delete('/api/chat/clear/:user1/:user2', async (req, res) => {
 });
 
 const port = 5007;
-httpServer.listen(port, "0.0.0.0", () => {
-  console.log(`Chat Service (with Socket.io) running on port ${port}`);
+ensureChatMessageCapacity().finally(() => {
+  httpServer.listen(port, "0.0.0.0", () => {
+    console.log(`Chat Service (with Socket.io) running on port ${port}`);
+  });
 });

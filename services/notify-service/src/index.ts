@@ -19,27 +19,60 @@ const notificationQueue = new Queue('job-notifications', {
 // Security
 app.use(helmet());
 app.use(hpp());
-app.use(cors());
+
+// CORS Configuration - must specify origin when using credentials
+const corsOptions = {
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean | string) => void) => {
+    // If no Origin header (server-to-server), allow default.
+    // Otherwise, reflect the request origin to avoid "192.168.x" vs "localhost" mismatches.
+    callback(null, origin ?? 'http://localhost:3000');
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200,
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(morgan('dev'));
+
+const smtpUser = process.env.EMAIL_USER?.trim();
+const smtpPass = process.env.EMAIL_PASS?.replace(/\s+/g, '');
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: smtpUser,
+    pass: smtpPass,
   },
 });
 
-const emailStrictMode = process.env.EMAIL_STRICT === 'true';
+const emailStrictMode =
+  process.env.EMAIL_STRICT === 'true' ||
+  (process.env.NODE_ENV !== 'production' && process.env.EMAIL_STRICT !== 'false');
 
 function isEmailConfigured() {
-  return Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+  return Boolean(smtpUser && smtpPass);
 }
 
 function getEmailSetupMessage(error?: any) {
   const reason = error?.message ? ` ${error.message}` : '';
   return `Email not sent.${reason} For Gmail, EMAIL_PASS must be a Gmail App Password, not the normal account password.`;
+}
+
+async function verifyEmailTransport() {
+  if (!isEmailConfigured()) {
+    console.warn('[Notify Service] Email is not configured. EMAIL_USER or EMAIL_PASS is missing.');
+    return;
+  }
+
+  try {
+    await transporter.verify();
+    console.log(`[Notify Service] Gmail SMTP authenticated for ${smtpUser}`);
+  } catch (error: any) {
+    console.warn(`[Notify Service] ${getEmailSetupMessage(error)}`);
+  }
 }
 
 // Worker Logic: Queue-ээс даалгавар авч гүйцэтгэх
@@ -54,7 +87,7 @@ notificationQueue.process(async (job) => {
     }
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: smtpUser,
       to,
       subject,
       html,
@@ -76,7 +109,7 @@ app.post('/api/notify/send-email', async (req, res) => {
     }
 
     await transporter.sendMail({
-      from: process.env.EMAIL_USER,
+      from: smtpUser,
       to,
       subject,
       html,
@@ -97,4 +130,5 @@ app.post('/api/notify/send-email', async (req, res) => {
 const port = process.env.PORT || 5006;
 app.listen(port, () => {
   console.log(`Notify Service running on http://localhost:${port}`);
+  verifyEmailTransport();
 });

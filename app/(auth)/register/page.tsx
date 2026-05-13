@@ -5,14 +5,15 @@ import React, { useState, useEffect } from "react";
 import { Eye, EyeOff, User, Briefcase, Loader2, ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import { signIn } from "next-auth/react";
+import { useAlert } from "@/components/AlertProvider";
 
 export default function RegisterPage() {
+  const { showAlert } = useAlert();
   const [showPass, setShowPass] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [userType, setUserType] = useState("candidate");
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
-  const [showGift, setShowGift] = useState(false);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +38,7 @@ export default function RegisterPage() {
   }, [step, timer]);
 
   const handleSendCode = async () => {
-    if (!email || !password) return alert("Мэдээллээ бүрэн бөглөнө үү");
+    if (!email || !password) return showAlert("Мэдээллээ бүрэн бөглөнө үү", "error");
     setIsLoading(true);
     try {
       const res = await fetch("http://localhost:5001/api/auth/send-code", {
@@ -50,17 +51,17 @@ export default function RegisterPage() {
         setStep(2);
         setTimer(120);
       } else {
-        alert(data.error);
+        showAlert(data.error, "error");
       }
     } catch (err) {
-      alert("Сервер ажиллахгүй байна");
+      showAlert("Сервер ажиллахгүй байна", "error");
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleFinalRegister = async () => {
-    if (code.length !== 6) return alert("6 оронтой код оруулна уу");
+    if (code.length !== 6) return showAlert("6 оронтой код оруулна уу", "error");
     setIsLoading(true);
     try {
         const res = await fetch("http://localhost:5001/api/auth/register", {
@@ -70,19 +71,17 @@ export default function RegisterPage() {
       });
       const data = await res.json();
       if (res.ok) {
-        setShowGift(true);
-        setTimeout(async () => {
-          await signIn("credentials", {
-            email,
-            password,
-            callbackUrl: "/dashboard",
-          });
-        }, 3000);
+        showAlert("Бүртгэл амжилттай. Нэвтэрч байна...", "success");
+        await signIn("credentials", {
+          email,
+          password,
+          callbackUrl: "/dashboard",
+        });
       } else {
-        alert(data.error);
+        showAlert(data.error, "error");
       }
     } catch (err) {
-      alert("Алдаа гарлаа");
+      showAlert("Алдаа гарлаа", "error");
     } finally {
       setIsLoading(false);
     }
@@ -95,34 +94,15 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#050810] font-sans text-white flex items-center justify-center relative">
+    <div className="relative flex min-h-[100dvh] w-full items-stretch justify-center overflow-x-hidden overflow-y-auto bg-[#050810] font-sans text-white">
       {/* Background Glows */}
       <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#10B981]/5 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#4F67FF]/5 rounded-full blur-[120px] pointer-events-none"></div>
 
-      {/* Gift Animation Modal */}
-      {showGift && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-xl animate-in fade-in duration-500">
-          <div className="bg-[#080D1D] p-12 rounded-[40px] border border-[#10B981]/ shadow-[0_0_100px_rgba(16,185,129,0.1)] text-center max-w-sm w-full mx-4 relative overflow-hidden animate-in zoom-in duration-500">
-            <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-[#10B981] to-transparent animate-pulse"></div>
-            <div className="w-24 h-24 bg-[#10B981]/10 rounded-xl flex items-center justify-center mx-auto mb-8 border border-[#10B981]/20 rotate-12">
-              <span className="text-5xl animate-bounce">🎁</span>
-            </div>
-            <h2 className="text-3xl font-black mb-3 text-white tracking-tighter">БАЯР ХҮРГЭЕ!</h2>
-            <p className="text-[#10B981] text-[10px] font-black uppercase tracking-widest mb-2">[User Service] 200 OK</p>
-            <p className="text-[#6b7280] text-xs font-bold uppercase tracking-widest mb-8 leading-relaxed">Таны бүртгэл амжилттай. <br/> Бид танд <span className="text-[#10B981]">{promoCode ? '15' : '10'} КРЕДИТ</span> бэлэглэлээ.</p>
-            <div className="flex items-center justify-center gap-3">
-              <Loader2 className="animate-spin text-[#10B981]" size={16} />
-              <span className="text-[10px] font-black text-[#374151] uppercase tracking-[0.3em]">Нэвтэрч байна...</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="w-full h-full flex flex-col md:flex-row bg-[#080D1D]/50 backdrop-blur-2xl rounded-xl overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.5)] relative border border-white/5 animate-in fade-in zoom-in duration-700">
+      <div className="relative flex min-h-[100dvh] w-full flex-col overflow-visible rounded-xl border border-white/5 bg-[#080D1D]/50 shadow-[0_0_100px_rgba(0,0,0,0.5)] backdrop-blur-2xl animate-in fade-in zoom-in duration-700 md:flex-row md:overflow-hidden">
         
         {/* Зүүн тал - Чимэглэл */}
-        <div className="w-full md:w-[45%] relative flex flex-col justify-center p-6 md:p-12 bg-gradient-to-br from-[#190e5b] to-[#080D1D] shrink-0 text-center md:text-left h-auto md:h-full">
+        <div className="relative flex h-auto w-full shrink-0 flex-col justify-center bg-gradient-to-br from-[#190e5b] to-[#080D1D] p-5 text-center sm:p-6 md:min-h-[100dvh] md:w-[45%] md:p-12 md:text-left">
           <div className="relative z-10 mb-4 md:mb-10 animate-slide-up">
             <div style={{ opacity: isLoaded ? 1 : 0, transform: isLoaded ? "translateY(0)" : "translateY(10px)", transition: "all 1s ease-out" }}>
               <h1 className="text-[22px] md:text-[36px] lg:text-[42px] font-black leading-tight tracking-tight uppercase">
@@ -144,7 +124,7 @@ export default function RegisterPage() {
         </div>
 
         {/* Баруун тал - Форм */}
-        <div className="flex-1 flex flex-col justify-center p-6 md:p-12 lg:p-16 z-[2] overflow-y-auto md:overflow-visible">
+        <div className="z-[2] flex min-h-0 flex-1 flex-col justify-start overflow-y-visible p-5 sm:p-6 md:justify-center md:overflow-y-auto md:p-12 lg:p-16">
           <div className="max-w-[360px] w-full mx-auto py-4">
             
             <div className="flex justify-between items-center mb-10">

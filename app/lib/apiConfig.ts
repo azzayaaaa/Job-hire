@@ -43,8 +43,14 @@ export const API_URLS = {
     all: () => `${jobBase}/api/jobs/all`,
     stats: () => `${jobBase}/api/jobs/filters/stats`,
     apply: () => `${jobBase}/api/jobs/apply`,
+    applyWithAutoCv: () => `${jobBase}/api/jobs/apply-with-auto-cv`,
     create: () => `${jobBase}/api/jobs/create`,
     detail: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
+    shareLink: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}/share-link`,
+    recommendationsForCandidate: () =>
+      `${jobBase}/api/jobs/recommendations/for-candidate`,
+    recommendationsCandidatesForJob: () =>
+      `${jobBase}/api/jobs/recommendations/candidates-for-job`,
     savedCount: (userId: number | string) =>
       `${jobBase}/api/jobs/saved/count/${userId}`,
     save: () => `${jobBase}/api/jobs/save`,
@@ -73,6 +79,8 @@ export const API_URLS = {
     askWithFile: () => `${aiBase}/api/ai/ask-file`,
     parseCv: () => `${aiBase}/api/ai/parse-cv`,
     analyze: () => `${aiBase}/api/ai/analyze`,
+    analyzeCv: () => `${aiBase}/api/ai/analyze-cv`,
+    matchCvToJob: () => `${aiBase}/api/ai/match-cv-to-job`,
     generateCv: () => `${aiBase}/api/ai/generate-cv`,
   },
 
@@ -82,6 +90,14 @@ export const API_URLS = {
 
   user: {
     profile: (userId: number | string) => `${userBase}/api/users/profile/${userId}`,
+    entitlements: (userId: number | string) => `${userBase}/api/users/entitlements/${userId}`,
+    useEntitlement: (userId: number | string) => `${userBase}/api/users/entitlements/${userId}/use`,
+    upgradePlan: (userId: number | string) => `${userBase}/api/users/entitlements/${userId}/upgrade`,
+    createPaymentOrder: () => `${userBase}/api/users/payment-orders`,
+    paymentOrders: (userId: number | string) => `${userBase}/api/users/payment-orders/user/${userId}`,
+    adminPaymentOrders: () => `${userBase}/api/users/admin/payment-orders`,
+    adminApprovePaymentOrder: (orderId: number | string) => `${userBase}/api/users/admin/payment-orders/${orderId}/approve`,
+    adminRejectPaymentOrder: (orderId: number | string) => `${userBase}/api/users/admin/payment-orders/${orderId}/reject`,
   },
 
   notifications: {

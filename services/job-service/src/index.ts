@@ -133,6 +133,105 @@ function normalizeJobForClient(job: any) {
   };
 }
 
+function sanitizeCandidateForList(candidate: any) {
+  if (!candidate) return null;
+  const { cvText, ...safeCandidate } = candidate;
+  return {
+    ...safeCandidate,
+    hasCVText: !!cvText,
+  };
+}
+
+function normalizeReadableText(value: unknown, maxChars = 4000) {
+  if (typeof value !== 'string') return '';
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (!text) return '';
+  if (/^data:(application\/pdf|image\/)/i.test(text)) return '';
+  if (/^[A-Za-z0-9+/=]{500,}$/.test(text.slice(0, 1000))) return '';
+  return text.slice(0, maxChars);
+}
+
+function isStoredFileDataUrl(value: unknown) {
+  return typeof value === 'string' && /^data:(application\/pdf|image\/)/i.test(value.trim());
+}
+
+async function repairCandidateCvIfNeeded(candidate: any) {
+  if (!isStoredFileDataUrl(candidate?.cvText)) return candidate;
+
+  try {
+    const response = await axios.post(
+      'http://127.0.0.1:5004/api/ai/parse-cv',
+      {
+        dataUrl: candidate.cvText,
+        fileName: candidate.cvFileName || `candidate-${candidate.id}-cv`,
+      },
+      { timeout: 45000 },
+    );
+
+    const parsedText = normalizeReadableText(response.data?.cvText, 20000);
+    if (!parsedText) return candidate;
+
+    await prisma.user.update({
+      where: { id: Number(candidate.id) },
+      data: {
+        cvText: parsedText,
+        ...(candidate.cvFileName ? { cvFileName: candidate.cvFileName } : {}),
+      },
+    });
+
+    return { ...candidate, cvText: parsedText };
+  } catch (error: any) {
+    console.error('[Job Service] Lazy CV parse failed:', {
+      candidateId: candidate?.id,
+      message: error?.message || error,
+    });
+    return candidate;
+  }
+}
+
+function keywordTokens(value: unknown) {
+  return normalizeReadableText(value, 6000)
+    .toLowerCase()
+    .split(/[^a-zа-яөӨүҮёЁ0-9+#.]+/i)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function deterministicCandidateMatch(job: any, candidate: any) {
+  const jobTokens = new Set(keywordTokens([
+    job?.title,
+    job?.description,
+    job?.requirements,
+    job?.category,
+  ].filter(Boolean).join(' ')));
+
+  const candidateText = [
+    candidate?.cvText,
+    candidate?.skills,
+    candidate?.description,
+    candidate?.location,
+  ].filter(Boolean).join(' ');
+  const candidateTokens = new Set(keywordTokens(candidateText));
+
+  if (jobTokens.size === 0 || candidateTokens.size === 0) {
+    return { matchScore: 0, strengths: [], feedback: 'Уншигдах CV/ур чадварын мэдээлэл дутуу байна.' };
+  }
+
+  const overlap = [...jobTokens].filter((token) => candidateTokens.has(token));
+  const titleTokens = keywordTokens(job?.title || '');
+  const titleOverlap = titleTokens.filter((token) => candidateTokens.has(token));
+  const base = Math.round((overlap.length / Math.max(jobTokens.size, 1)) * 100);
+  const score = Math.max(0, Math.min(95, base + titleOverlap.length * 12));
+
+  return {
+    matchScore: score,
+    strengths: overlap.slice(0, 5),
+    feedback: overlap.length
+      ? `CV/профайл дээр ажлын шаардлагатай давхцах түлхүүрүүд: ${overlap.slice(0, 5).join(', ')}.`
+      : 'Ажлын шаардлагатай шууд давхцах мэдээлэл бага байна.',
+  };
+}
+
 // Apply limiter only to high-volume "jobs/all" and writes (not for stats polling)
 app.get('/api/jobs/all', limiter, async (req, res) => {
   console.log('[Job Service] GET /api/jobs/all - Fetching all active jobs');
@@ -187,7 +286,7 @@ app.get('/api/jobs/all', limiter, async (req, res) => {
     });
 
     const employerMap = new Map(employers.map((employer) => [employer.id, employer]));
-    const candidateMap = new Map(candidates.map((candidate) => [candidate.id, candidate]));
+    const candidateMap = new Map(candidates.map((candidate) => [candidate.id, sanitizeCandidateForList(candidate)]));
     const applicationsByJobId = new Map<number, any[]>();
 
     for (const application of applications) {
@@ -212,7 +311,7 @@ app.get('/api/jobs/all', limiter, async (req, res) => {
         jobId: safeJobs[0].id,
         candidateName: firstApp.candidate?.fullName,
         candidateEmail: firstApp.candidate?.email,
-        hasCVText: !!firstApp.candidate?.cvText,
+        hasCVText: !!firstApp.candidate?.hasCVText,
         cvFileName: firstApp.candidate?.cvFileName
       });
     }
@@ -229,6 +328,23 @@ app.post('/api/jobs/create', async (req, res) => {
   const { title, description, requirements, location, salary, category, jobType, employerId, experience, image } = req.body;
   console.log(`[Job Service] POST /api/jobs/create - Employer ${employerId} is creating job: ${title}`);
   try {
+    const normalizedEmployerId = Number(employerId);
+    const entitlementRes = await axios.get(`${USER_SERVICE_URL}/entitlements/${normalizedEmployerId}`);
+    const proActive = entitlementRes.data?.proActive === true;
+
+    if (!proActive) {
+      const freeEmployerJobCount = await prisma.job.count({
+        where: { employerId: normalizedEmployerId },
+      });
+
+      if (freeEmployerJobCount >= 2) {
+        return res.status(402).json({
+          error: "Free plan employer 2 ажлын зар нийтлэх эрхтэй.",
+          code: "FREE_EMPLOYER_JOB_LIMIT_REACHED",
+        });
+      }
+    }
+
     const experienceMarker = `[EXPERIENCE:${experience || '1-3'}]`;
     const job = await prisma.job.create({
       data: {
@@ -239,7 +355,7 @@ app.post('/api/jobs/create', async (req, res) => {
         salary,
         category,
         jobType: jobType || "FULL_TIME",
-        employerId: Number(employerId),
+        employerId: normalizedEmployerId,
         image: image || null
       }
     });
@@ -304,16 +420,55 @@ app.post('/api/jobs/apply', async (req, res) => {
     const job = await prisma.job.findUnique({ where: { id: parsedJobId } });
     if (!job) return res.status(404).json({ error: "Job not found" });
 
-    const submittedCV = typeof cvText === 'string' ? cvText : '';
-    const submittedCVName = typeof cvFileName === 'string' ? cvFileName : undefined;
-    if (submittedCV) {
+    // Get candidate to check for saved CV
+    const candidate = await prisma.user.findUnique({
+      where: { id: parsedCandidateId },
+      select: { id: true, email: true, fullName: true, cvText: true, cvFileName: true }
+    });
+
+    if (!candidate) return res.status(404).json({ error: "Candidate not found" });
+
+    // Check for duplicate application
+    const existingApp = await prisma.jobApplication.findFirst({
+      where: { jobId: parsedJobId, candidateId: parsedCandidateId }
+    });
+
+    if (existingApp) {
+      return res.status(400).json({ error: "Та аль хэдийн энэ ажилд өргөдөл илгээсэн байна." });
+    }
+
+    let finalCvText = cvText || '';
+    let finalCvFileName = cvFileName || undefined;
+    let cvStatus = 'uploaded'; // 'uploaded', 'saved', or 'missing'
+
+    // If CV is submitted in the request, save it
+    if (finalCvText) {
       await prisma.user.update({
         where: { id: parsedCandidateId },
         data: {
-          cvText: submittedCV,
-          ...(submittedCVName ? { cvFileName: submittedCVName } : {})
+          cvText: finalCvText,
+          ...(finalCvFileName ? { cvFileName: finalCvFileName } : {})
         }
       });
+      cvStatus = 'uploaded';
+    } 
+    // Otherwise, try to use saved CV
+    else if (candidate.cvText) {
+      finalCvText = candidate.cvText;
+      finalCvFileName = candidate.cvFileName || undefined;
+      cvStatus = 'saved';
+    } 
+    // No CV available
+    else {
+      cvStatus = 'missing';
+    }
+
+    // Create application with feedback based on CV status
+    let feedbackMessage = "Өргөдөл амжилттай ilгээгдлээ.";
+    if (cvStatus === 'saved') {
+      feedbackMessage = "Өргөдөл амжилттай илгээгдлээ. Хадгалсан CV-тай.";
+    } else if (cvStatus === 'missing') {
+      feedbackMessage = "Өргөдөл амжилттай илгээгдлээ. (CV хадгалаагүй)";
     }
 
     const application = await prisma.jobApplication.create({
@@ -321,25 +476,54 @@ app.post('/api/jobs/apply', async (req, res) => {
         jobId: parsedJobId,
         candidateId: parsedCandidateId,
         matchScore: null,
-        feedback: "Хүсэлт амжилттай илгээгдлээ."
+        feedback: feedbackMessage
       }
     });
 
+    // Calculate match score asynchronously if CV exists
+    if (finalCvText) {
+      try {
+        const matchResponse = await axios.post(
+          'http://127.0.0.1:5004/api/ai/match-cv-to-job',
+          {
+            cv: finalCvText,
+            jobTitle: job.title,
+            jobDescription: job.description,
+            jobRequirements: job.requirements
+          },
+          { timeout: 30000 }
+        );
+
+        const matchScore = matchResponse.data?.matchScore || 0;
+        await prisma.jobApplication.update({
+          where: { id: application.id },
+          data: {
+            matchScore: matchScore,
+            feedback: `${feedbackMessage} (AI тохирлын оноо: ${matchScore}%)`
+          }
+        });
+      } catch (aiError: any) {
+        console.warn('[Job Service] Could not calculate match score:', aiError.message);
+      }
+    }
+
+    // Notify employer
     try {
-      const [employer, candidate] = await Promise.all([
-        prisma.user.findUnique({ where: { id: job.employerId }, select: { id: true, email: true, fullName: true } }),
-        prisma.user.findUnique({ where: { id: parsedCandidateId }, select: { id: true, email: true, fullName: true } })
+      const [employer] = await Promise.all([
+        prisma.user.findUnique({ where: { id: job.employerId }, select: { id: true, email: true, fullName: true } })
       ]);
 
-      if (employer && candidate) {
+      if (employer) {
         const candidateName = candidate.fullName || candidate.email;
         const employerLink = 'http://localhost:3000/dashboard/employer?tab=candidates';
+        const cvNote = cvStatus === 'missing' ? '(CV гүйхэн)' : '(CV хэмжээтэй)';
+        
         await createInAppNotification({
           senderId: candidate.id,
           receiverId: employer.id,
           type: 'JOB_OFFER',
           title: 'Шинэ ажлын хүсэлт ирлээ',
-          message: `Таны "${job.title}" зарт ${candidateName} хүсэлт явууллаа. Энэ дээр дарж дэлгэрэнгүй харна уу.`,
+          message: `Таны "${job.title}" зарт ${candidateName} ${cvNote} хүсэлт явууллаа.`,
           link: employerLink,
         });
 
@@ -349,7 +533,7 @@ app.post('/api/jobs/apply', async (req, res) => {
           `Шинэ хүсэлт: ${job.title}`,
           emailTemplate(
             'Шинэ ажлын хүсэлт ирлээ',
-            `<p>Сайн байна уу?</p><p>Таны <b>${escapeHtml(job.title)}</b> зарт <b>${escapeHtml(candidateName)}</b> хүсэлт явууллаа.</p><p>Кандидатын CV болон дэлгэрэнгүй мэдээллийг самбараасаа шалгана уу.</p>`,
+            `<p>Сайн байна уу?</p><p>Таны <b>${escapeHtml(job.title)}</b> зарт <b>${escapeHtml(candidateName)}</b> хүсэлт явууллаа ${cvNote}.</p><p>Кандидатын мэдээллийг самбараасаа шалгана уу.</p>`,
             'Кандидатууд харах',
             employerLink,
           ),
@@ -359,8 +543,13 @@ app.post('/api/jobs/apply', async (req, res) => {
       console.error('[Job Service] Notification failed (Apply):', notifyErr.message);
     }
 
-    console.log(`[Job Service] Application submitted and employer notified - 201 OK`);
-    res.status(201).json({ success: true, application });
+    console.log(`[Job Service] Application created - CV Status: ${cvStatus} - 201 OK`);
+    res.status(201).json({ 
+      success: true, 
+      application,
+      cvStatus: cvStatus,
+      message: feedbackMessage
+    });
   } catch (error: any) {
     console.error('[Job Service] Error creating job application:', error);
     return res.status(500).json({ error: 'Failed to create job application.', details: error.message });
@@ -625,6 +814,42 @@ app.get('/api/jobs/stats/candidate/:id', async (req, res) => {
 });
 
 // Get applications for a specific job (with candidate details)
+app.get('/api/jobs/:jobId', async (req, res) => {
+  const jobIdNum = Number(req.params.jobId);
+
+  if (!Number.isInteger(jobIdNum)) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+
+  try {
+    const job = await prisma.job.findUnique({
+      where: { id: jobIdNum },
+      include: {
+        employer: {
+          select: { id: true, email: true, fullName: true, phone: true, logo: true },
+        },
+        applications: {
+          select: {
+            id: true,
+            jobId: true,
+            candidateId: true,
+            status: true,
+            matchScore: true,
+            feedback: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+    return res.json(normalizeJobForClient(job));
+  } catch (error: any) {
+    console.error('[Job Service] Error fetching job detail:', error);
+    return res.status(500).json({ error: 'Failed to fetch job detail', details: error.message });
+  }
+});
+
 app.get('/api/jobs/:jobId/applications', async (req, res) => {
   const { jobId } = req.params;
   console.log(`[Job Service] GET /api/jobs/${jobId}/applications - Fetching applications for job ${jobId}`);
@@ -858,6 +1083,474 @@ app.delete('/api/jobs/unsave/:jobId/:candidateId', async (req, res) => {
   }
 });
 
+// ===============================
+// JOB RECOMMENDATION ENDPOINTS
+// ===============================
+
+/**
+ * Get recommended jobs for a candidate based on their CV
+ * POST /api/jobs/recommendations/for-candidate
+ */
+app.post('/api/jobs/recommendations/for-candidate', async (req, res) => {
+  try {
+    const { candidateId } = req.body;
+    
+    if (!candidateId) {
+      return res.status(400).json({ error: 'candidateId required' });
+    }
+
+    console.log(`[Job Service] GET recommendations for candidate ${candidateId}`);
+
+    // Get candidate's CV
+    const candidate = await prisma.user.findUnique({
+      where: { id: Number(candidateId) },
+      select: { id: true, cvText: true, skills: true, fullName: true }
+    });
+
+    if (!candidate || !candidate.cvText) {
+      return res.status(404).json({ error: 'Candidate or CV not found' });
+    }
+
+    // Get all active jobs
+    const jobs = await prisma.job.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        requirements: true,
+        location: true,
+        salary: true,
+        category: true,
+        employerId: true
+      },
+      take: 20
+    });
+
+    if (jobs.length === 0) {
+      return res.json({ success: true, recommendations: [] });
+    }
+
+    // Call AI service to match jobs
+    try {
+      const aiResponse = await axios.post(
+        'http://127.0.0.1:5004/api/ai/find-matching-jobs',
+        {
+          cv: candidate.cvText,
+          availableJobs: jobs
+        },
+        { timeout: 30000 }
+      );
+
+      const matches = aiResponse.data?.matches || [];
+      
+      // Fetch full job details for matched jobs
+      const recommendedJobs = await Promise.all(
+        matches.map(async (match: any) => {
+          const job = await prisma.job.findUnique({
+            where: { id: match.jobId },
+            include: {
+              employer: {
+                select: { id: true, fullName: true, email: true, logo: true }
+              }
+            }
+          });
+          return {
+            ...job,
+            matchScore: match.matchScore,
+            matchReason: match.reason
+          };
+        })
+      );
+
+      console.log(`[Job Service] Found ${recommendedJobs.length} recommendations for candidate ${candidateId}`);
+      res.json({
+        success: true,
+        recommendations: recommendedJobs
+      });
+    } catch (aiError: any) {
+      console.error('[Job Service] AI matching error:', aiError.message);
+      // Fallback: return recent active jobs
+      const fallbackJobs = await prisma.job.findMany({
+        where: { status: 'ACTIVE' },
+        include: {
+          employer: {
+            select: { id: true, fullName: true, email: true, logo: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 5
+      });
+
+      res.json({
+        success: true,
+        recommendations: fallbackJobs,
+        note: 'Using fallback recommendations due to AI service unavailability'
+      });
+    }
+  } catch (error: any) {
+    console.error('[Job Service] Error getting recommendations:', error);
+    res.status(500).json({ error: 'Failed to get recommendations', details: error.message });
+  }
+});
+
+/**
+ * Get recommended candidates for a job
+ * POST /api/jobs/recommendations/candidates-for-job
+ */
+app.post('/api/jobs/recommendations/candidates-for-job', async (req, res) => {
+  try {
+    const { jobId, searchText } = req.body as { jobId?: number | string; searchText?: string };
+    const normalizedSearchText = normalizeReadableText(searchText, 1800);
+    let job = jobId
+      ? await prisma.job.findUnique({
+          where: { id: Number(jobId) },
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            requirements: true,
+            employerId: true
+          }
+        })
+      : null;
+
+    if (!job && !normalizedSearchText) {
+      return res.status(400).json({ error: 'jobId or searchText required' });
+    }
+
+    if (!job) {
+      job = {
+        id: 0,
+        title: 'Employer candidate search',
+        description: normalizedSearchText,
+        requirements: normalizedSearchText,
+        employerId: 0,
+      };
+    }
+
+    console.log(`[Job Service] GET candidate recommendations for ${jobId ? `job ${jobId}` : 'prompt search'}`);
+
+    // Get all candidates with CVs
+    const candidates = await prisma.user.findMany({
+      where: {
+        userType: 'CANDIDATE',
+        cvText: { not: null }
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        cvText: true,
+        cvFileName: true,
+        skills: true,
+        phone: true,
+      },
+      take: 30
+    });
+
+    const repairedCandidates = await Promise.all(
+      candidates.map((candidate: any) => repairCandidateCvIfNeeded(candidate)),
+    );
+
+    const candidatesWithReadableProfile = repairedCandidates
+      .map((candidate: any) => ({
+        ...candidate,
+        cvText: normalizeReadableText(candidate.cvText),
+        skills: normalizeReadableText(candidate.skills, 1000),
+        profileText: normalizeReadableText(
+          [candidate.fullName, candidate.email, candidate.phone, candidate.skills].filter(Boolean).join(' '),
+          1500,
+        ),
+      }))
+      .filter((candidate: any) => {
+        const evidence = [candidate.cvText, candidate.skills, candidate.profileText].join(' ').trim();
+        return evidence.length >= 30;
+      });
+
+    if (candidatesWithReadableProfile.length === 0) {
+      return res.json({ success: true, recommendations: [] });
+    }
+
+    // Call AI service to match candidates
+    try {
+      const aiResponse = await axios.post(
+        'http://127.0.0.1:5004/api/ai/match-candidates-to-job',
+        {
+          jobTitle: job.title,
+          jobDescription: job.description,
+          jobRequirements: job.requirements,
+          candidates: candidatesWithReadableProfile
+        },
+        { timeout: 30000 }
+      );
+
+      const matches = aiResponse.data?.matches || [];
+
+      // Fetch full details for matched candidates
+      const recommendedCandidates = matches
+        .map((match: any) => {
+          const candidate = candidatesWithReadableProfile.find((c: any) => c.id === match.candidateId);
+          const score = Number(match.matchScore) || 0;
+          if (!candidate || score < 40) return null;
+          return {
+            ...candidate,
+            matchScore: score,
+            strengths: match.strengths,
+            feedback: match.feedback
+          };
+        })
+        .filter(Boolean)
+        .sort((a: any, b: any) => Number(b.matchScore) - Number(a.matchScore));
+
+      const finalCandidates = recommendedCandidates.length
+        ? recommendedCandidates
+        : candidatesWithReadableProfile
+            .map((candidate: any) => {
+              const match = deterministicCandidateMatch(job, candidate);
+              return { ...candidate, ...match };
+            })
+            .filter((candidate: any) => Number(candidate.matchScore) >= 25)
+            .sort((a: any, b: any) => Number(b.matchScore) - Number(a.matchScore))
+            .slice(0, 10);
+
+      console.log(`[Job Service] Found ${finalCandidates.length} candidate recommendations for job ${jobId}`);
+      res.json({
+        success: true,
+        recommendations: finalCandidates,
+        note: recommendedCandidates.length ? undefined : 'Using keyword fallback recommendations'
+      });
+    } catch (aiError: any) {
+      console.error('[Job Service] AI matching error:', aiError.message);
+      const fallbackCandidates = candidatesWithReadableProfile
+        .map((candidate: any) => {
+          const match = deterministicCandidateMatch(job, candidate);
+          return { ...candidate, ...match };
+        })
+        .filter((candidate: any) => Number(candidate.matchScore) >= 25)
+        .sort((a: any, b: any) => Number(b.matchScore) - Number(a.matchScore))
+        .slice(0, 10);
+
+      res.json({
+        success: true,
+        recommendations: fallbackCandidates,
+        note: fallbackCandidates.length
+          ? 'Using keyword fallback recommendations due to AI service unavailability'
+          : 'No readable CV/profile matched this job'
+      });
+    }
+  } catch (error: any) {
+    console.error('[Job Service] Error getting candidate recommendations:', error);
+    res.status(500).json({ error: 'Failed to get recommendations', details: error.message });
+  }
+});
+
+/**
+ * Auto-upload CV when applying (if candidate has saved CV)
+ * POST /api/jobs/apply-with-auto-cv
+ */
+app.post('/api/jobs/apply-with-auto-cv', async (req, res) => {
+  try {
+    const { jobId, candidateId } = req.body;
+    const parsedJobId = Number(jobId);
+    const parsedCandidateId = Number(candidateId);
+
+    if (isNaN(parsedJobId) || isNaN(parsedCandidateId)) {
+      return res.status(400).json({ error: 'Invalid jobId or candidateId' });
+    }
+
+    console.log(`[Job Service] Auto-applying candidate ${parsedCandidateId} for job ${parsedJobId}`);
+
+    const job = await prisma.job.findUnique({ where: { id: parsedJobId } });
+    if (!job) return res.status(404).json({ error: 'Job not found' });
+
+    // Get candidate's saved CV
+    const candidate = await prisma.user.findUnique({
+      where: { id: parsedCandidateId },
+      select: { id: true, cvText: true, cvFileName: true, fullName: true, email: true }
+    });
+
+    if (!candidate) {
+      return res.status(404).json({ error: 'Candidate not found' });
+    }
+
+    if (!candidate.cvText) {
+      return res.status(400).json({ 
+        error: 'CV not saved',
+        message: 'Та CV хадгалаагүй байна. Эхлээд CV нэмэнэ үү.' 
+      });
+    }
+
+    // Check if already applied
+    const existingApplication = await prisma.jobApplication.findFirst({
+      where: { jobId: parsedJobId, candidateId: parsedCandidateId }
+    });
+
+    if (existingApplication) {
+      return res.status(400).json({ 
+        error: 'Already applied',
+        message: 'Та аль хэдийн энэ ажилд өргөдөл илгээсэн байна.' 
+      });
+    }
+
+    // Create application with match score
+    const application = await prisma.jobApplication.create({
+      data: {
+        jobId: parsedJobId,
+        candidateId: parsedCandidateId,
+        matchScore: 0,
+        feedback: 'CV auto-uploaded from saved profile'
+      }
+    });
+
+    // Calculate match score asynchronously
+    try {
+      const matchResponse = await axios.post(
+        'http://127.0.0.1:5004/api/ai/match-cv-to-job',
+        {
+          cv: candidate.cvText,
+          jobTitle: job.title,
+          jobDescription: job.description,
+          jobRequirements: job.requirements
+        },
+        { timeout: 30000 }
+      );
+
+      const matchScore = matchResponse.data?.matchScore || 0;
+      
+      // Update application with match score
+      await prisma.jobApplication.update({
+        where: { id: application.id },
+        data: {
+          matchScore: matchScore,
+          feedback: `AI match score: ${matchScore}%`
+        }
+      });
+
+      console.log(`[Job Service] Match score calculated: ${matchScore}%`);
+    } catch (aiError: any) {
+      console.warn('[Job Service] Could not calculate match score:', aiError.message);
+    }
+
+    // Notify employer
+    try {
+      const employer = await prisma.user.findUnique({
+        where: { id: job.employerId },
+        select: { id: true, email: true, fullName: true }
+      });
+
+      if (employer) {
+        const candidateName = candidate.fullName || candidate.email;
+        const employerLink = 'http://localhost:3000/dashboard/employer?tab=candidates';
+        
+        await createInAppNotification({
+          senderId: candidate.id,
+          receiverId: employer.id,
+          type: 'JOB_OFFER',
+          title: 'Шинэ ажлын хүсэлт ирлээ',
+          message: `${candidateName} таны "${job.title}" зарт CV хэмжээтэй өргөдөл явууллаа.`,
+          link: employerLink
+        });
+
+        await sendEmailIfAllowed(
+          employer.id,
+          employer.email,
+          `Шинэ хүсэлт: ${job.title}`,
+          emailTemplate(
+            'Шинэ ажлын хүсэлт ирлээ',
+            `<p>Сайн байна уу?</p><p>Таны <b>${job.title}</b> зарт <b>${candidateName}</b> CV хэмжээтэй өргөдөл явууллаа.</p>`,
+            'Кандидатууд харах',
+            employerLink
+          )
+        );
+      }
+    } catch (notifyErr: any) {
+      console.error('[Job Service] Notification failed:', notifyErr.message);
+    }
+
+    res.status(201).json({ 
+      success: true, 
+      application,
+      message: 'CV амжилттай илгээгдлээ'
+    });
+  } catch (error: any) {
+    console.error('[Job Service] Error auto-applying:', error);
+    res.status(500).json({ error: 'Failed to apply with auto CV', details: error.message });
+  }
+});
+
+/**
+ * Generate shareable job link
+ * GET /api/jobs/:jobId/share-link
+ */
+app.get('/api/jobs/:jobId/share-link', async (req, res) => {
+  try {
+    const { jobId } = req.params;
+    const jobIdNum = Number(jobId);
+
+    if (!jobIdNum) {
+      return res.status(400).json({ error: 'Invalid job ID' });
+    }
+
+    const job = await prisma.job.findUnique({
+      where: { id: jobIdNum },
+      select: { id: true, title: true }
+    });
+
+    if (!job) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const shareLink = `http://localhost:3000/dashboard/candidate?job=${job.id}`;
+    const shareMessage = `Энэ ажилд сонирхож байна: "${job.title}" - ${shareLink}`;
+
+    res.json({
+      success: true,
+      jobId: job.id,
+      jobTitle: job.title,
+      shareLink: shareLink,
+      shareMessage: shareMessage,
+      note: 'Энэ холбоосыг хуулж өөрийн дугуйлангаа хуваалцана уу'
+    });
+  } catch (error: any) {
+    console.error('[Job Service] Error generating share link:', error);
+    res.status(500).json({ error: 'Failed to generate share link', details: error.message });
+  }
+});
+
+/**
+ * Update application match score
+ * PATCH /api/jobs/applications/:applicationId/match-score
+ */
+app.patch('/api/jobs/applications/:applicationId/match-score', async (req, res) => {
+  try {
+    const { applicationId } = req.params;
+    const { matchScore } = req.body;
+    const appIdNum = Number(applicationId);
+
+    if (isNaN(appIdNum) || typeof matchScore !== 'number' || matchScore < 0 || matchScore > 100) {
+      return res.status(400).json({ error: 'Invalid application ID or match score' });
+    }
+
+    const application = await prisma.jobApplication.update({
+      where: { id: appIdNum },
+      data: {
+        matchScore: matchScore,
+        feedback: `Match score: ${matchScore}%`
+      }
+    });
+
+    console.log(`[Job Service] Updated application ${appIdNum} match score to ${matchScore}%`);
+    res.json({ success: true, application });
+  } catch (error: any) {
+    console.error('[Job Service] Error updating match score:', error);
+    res.status(500).json({ error: 'Failed to update match score', details: error.message });
+  }
+});
+
+// ===============================
+// START SERVER
+// ===============================
 const PORT = 5003;
 app.listen(PORT, () => {
   console.log(`Job Service running on http://localhost:${PORT}`);

@@ -2,6 +2,7 @@
 
 import { SessionProvider } from "next-auth/react";
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { AlertProvider } from "./components/AlertProvider";
 
 type Locale = "mn" | "en";
 type ThemeMode = "dark" | "light";
@@ -55,7 +56,7 @@ const translations: Record<Locale, TranslationMap> = {
     settings: "Тохиргоо",
     dashboard: "Хянах самбар",
     search: "Хайх",
-    credits: "Кредит",
+    credits: "Эрх",
     aiAssistant: "AI Туслах",
     candidatePortal: "Ажил горилогч",
     employerPortal: "Ажил олгогч",
@@ -89,7 +90,7 @@ const translations: Record<Locale, TranslationMap> = {
     settings: "Settings",
     dashboard: "Dashboard",
     search: "Search",
-    credits: "Credits",
+    credits: "Plan",
     aiAssistant: "AI Assistant",
     candidatePortal: "Candidate Portal",
     employerPortal: "Employer Portal",
@@ -176,11 +177,13 @@ export default function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <SessionProvider>
-      <LanguageContext.Provider value={{ lang, changeLang, t }}>
-        <ThemeContext.Provider value={{ theme, toggleTheme }}>
-          {children}
-        </ThemeContext.Provider>
-      </LanguageContext.Provider>
+      <AlertProvider>
+        <LanguageContext.Provider value={{ lang, changeLang, t }}>
+          <ThemeContext.Provider value={{ theme, toggleTheme }}>
+            {children}
+          </ThemeContext.Provider>
+        </LanguageContext.Provider>
+      </AlertProvider>
     </SessionProvider>
   );
 }

@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS `PaymentOrder` (
+  `id` INT NOT NULL AUTO_INCREMENT,
+  `orderId` VARCHAR(191) NOT NULL,
+  `userId` INT NOT NULL,
+  `amountMnt` INT NOT NULL DEFAULT 10000,
+  `plan` VARCHAR(191) NOT NULL DEFAULT 'PRO_MONTHLY',
+  `duration` VARCHAR(191) NOT NULL DEFAULT 'ONE_MONTH',
+  `bankName` VARCHAR(191) NOT NULL DEFAULT 'TDB',
+  `bankAccount` VARCHAR(191) NOT NULL DEFAULT '140005000499582572',
+  `bankHolderName` VARCHAR(191) NOT NULL DEFAULT 'Аззаяа Баяртай',
+  `screenshotUrl` LONGTEXT NULL,
+  `status` VARCHAR(191) NOT NULL DEFAULT 'PENDING',
+  `rejectReason` TEXT NULL,
+  `reviewedAt` DATETIME(3) NULL,
+  `reviewedBy` INT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `PaymentOrder_orderId_key` (`orderId`),
+  INDEX `PaymentOrder_userId_idx` (`userId`),
+  INDEX `PaymentOrder_status_idx` (`status`),
+  INDEX `PaymentOrder_createdAt_idx` (`createdAt`)
+);

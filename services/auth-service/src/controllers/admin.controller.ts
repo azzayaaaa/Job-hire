@@ -9,6 +9,8 @@ type AdminUser = {
   email: string;
   userType: string;
   credits: number;
+  subscriptionPlan?: string | null;
+  subscriptionExpiresAt?: string | Date | null;
   createdAt?: string | Date;
 };
 
@@ -108,6 +110,26 @@ export const updateUserRole = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Admin updateUserRole error:', error?.message || error);
     return res.status(500).json({ error: 'Эрх шинэчлэхэд алдаа гарлаа' });
+  }
+};
+
+export const updateUserPlan = async (req: Request, res: Response) => {
+  const { userId, plan, duration } = req.body;
+
+  try {
+    const response = await axios.post(`${USER_SERVICE_URL}/admin/update-plan`, {
+      userId,
+      plan,
+      duration,
+    });
+
+    const io = req.app.get('io');
+    if (io) io.to('admin-room').emit('admin-data-updated');
+
+    return res.status(200).json(response.data);
+  } catch (error: any) {
+    console.error('Admin updateUserPlan error:', error?.message || error);
+    return res.status(500).json({ error: 'Plan шинэчлэхэд алдаа гарлаа' });
   }
 };
 

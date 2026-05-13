@@ -1,12 +1,14 @@
 "use client";
 
 import React, { Suspense, useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import { flushSync } from "react-dom";
 import DashboardLayout from "../DashboardLayout";
 import EmployerProfileModal from "./EmployerProfileModal";
 import HomeView from "./HomeView";
 import JobsView from "./JobsView";
 import CandidatesView from "./CandidatesView";
+import CandidateRecommendations from "./CandidateRecommendations";
 import InterviewsView from "./InterviewsView";
 import MessagesView from "./MessagesView";
 import MessagesProfilePanel from "./MessagesProfilePanel";
@@ -15,10 +17,11 @@ import FloatingChat from "@/components/FloatingChat";
 import AiAssistantPanel from "@/components/AiAssistantPanel";
 import NotificationCenter from "@/components/NotificationCenter";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
+import UpgradePlanModal from "@/components/UpgradePlanModal";
 import {
   Briefcase, Users, FileText, Eye,
   Loader2, X, Home, Calendar, MessageSquare,
-  Settings, Bell, Search, MapPin, ChevronDown,
+  Settings, Bell, ChevronDown,
   Plus, LogOut, Sparkles, ImagePlus
 } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
@@ -26,6 +29,7 @@ import { notFound, useSearchParams, useRouter } from "next/navigation";
 import { io } from "socket.io-client";
 import { authenticatedFetch, authenticatedPost, authenticatedDelete, resetAxiosClient } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import { useAlert } from "@/components/AlertProvider";
 import { compressImageFile, safeSetLocalStorage } from "@/lib/imageStorage";
 
 function hydrateEmployerImages(jobs: any[]) {
@@ -65,6 +69,7 @@ function generateChartData(applications: any[]) {
 
 function EmployerDashboardContent() {
   const { data: session, status } = useSession();
+  const { showAlert } = useAlert();
   const searchParams = useSearchParams();
   const router       = useRouter();
   const tab          = searchParams.get("tab") || "jobs";
@@ -73,13 +78,13 @@ function EmployerDashboardContent() {
   const [applications, setApplications]   = useState<any[]>([]);
   const [recentCandidates, setRecentCandidates] = useState<any[]>([]);
   const [stats, setStats]                 = useState({ totalJobs: 0, totalApplications: 0 });
-  const [credits, setCredits]             = useState(0);
   const [loading, setLoading]             = useState(true);
   const [conversations, setConversations] = useState<any[]>([]);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [showModal, setShowModal]         = useState(false);
   const [showProfile, setShowProfile]     = useState(false);
   const [showSettings, setShowSettings]   = useState(false);
+  const [showUpgradePlan, setShowUpgradePlan] = useState(false);
   const [selectedJob, setSelectedJob]     = useState<any>(null);
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
   const [chartData, setChartData]         = useState<any[]>([]);
@@ -91,10 +96,15 @@ function EmployerDashboardContent() {
   const [chatSocket, setChatSocket]       = useState<any>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [profileBubbleContact, setProfileBubbleContact] = useState<any>(null);
+  const [floatingChatEnabled, setFloatingChatEnabled] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement | null>(null);
   const scrollToChatInputRef = useRef<(() => void) | null>(null);
 
   const fetchInFlightRef = useRef(false);
+  const unreadChatCount = conversations.reduce(
+    (sum: number, conversation: any) => sum + Number(conversation?.unreadCount || 0),
+    0,
+  );
 
   const [jobForm, setJobForm] = useState({
     title: "", description: "", requirements: "",
@@ -115,40 +125,51 @@ function EmployerDashboardContent() {
       setLoading(true);
       const userId = Number((session.user as any).id);
       
-      // Use API gateway URLs instead of direct backend calls. Chat is optional,
-      // so it should not block the rest of the employer dashboard.
-      const [allJobsRes, userRes] = await Promise.all([
-        authenticatedFetch(API_URLS.jobs.all()),
-        authenticatedFetch(API_URLS.auth.profile(userId)),
-      ]);
+      // Fetch all jobs with retry logic for network errors
+      let allJobsRes;
+      try {
+        allJobsRes = await authenticatedFetch(API_URLS.jobs.all());
+      } catch (jobsError: any) {
+        if (jobsError?.code === 'ERR_NETWORK' || jobsError?.message === 'Network Error') {
+          console.error("Job service unavailable - network error:", jobsError.message);
+          showAlert?.('error', 'Unable to fetch jobs. Please check if the job service is running.');
+        }
+        // Rethrow to be caught by outer catch
+        throw jobsError;
+      }
 
       let conversationsData: any[] = [];
       try {
         const convRes = await authenticatedFetch(API_URLS.chat.conversations(userId));
         conversationsData = convRes.data || [];
-      } catch {
+      } catch (chatError: any) {
+        if (chatError?.code === 'ERR_NETWORK' || chatError?.message === 'Network Error') {
+          console.debug("Chat service unavailable - network error");
+        } else {
+          console.error("Chat fetch error:", chatError);
+        }
         conversationsData = [];
       }
       
       const empJobs = hydrateEmployerImages(allJobsRes.data.filter((j: any) => Number(j.employerId) === userId));
       setJobs(empJobs);
-      setCredits(userRes.data.credits);
       setConversations(conversationsData);
 
       const applicationsData: any[] = [];
+
+      // /api/jobs/all is intentionally lightweight for landing/candidate pages.
+      // Employer view fetches full application details separately so CV previews still work.
       for (const job of empJobs) {
-        if (job.applications?.length > 0) applicationsData.push(...job.applications);
-      }
-      
-      // Add small delay between sequential requests to avoid 429 rate limits
-      if (applicationsData.length === 0 && empJobs.length > 0) {
-        for (const job of empJobs) {
-          try {
-            const appRes = await authenticatedFetch(`${API_URLS.jobs.detail(job.id)}/applications`);
-            applicationsData.push(...(appRes.data || []));
-            // Add 100ms delay between requests to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 100));
-          } catch {}
+        try {
+          const appRes = await authenticatedFetch(`${API_URLS.jobs.detail(job.id)}/applications`);
+          applicationsData.push(...(appRes.data || []));
+          // Add 100ms delay between requests to avoid rate limiting
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (appError: any) {
+          if (appError?.code === 'ERR_NETWORK' || appError?.message === 'Network Error') {
+            console.debug(`Applications for job ${job.id} unavailable - network error`);
+          }
+          if (job.applications?.length > 0) applicationsData.push(...job.applications);
         }
       }
       
@@ -170,12 +191,20 @@ function EmployerDashboardContent() {
         const upd = empJobs.find((j: any) => j.id === selectedJob.id);
         if (upd) setSelectedJob(upd);
       }
-    } catch (e) { console.error("Error fetching employer data:", e); }
+    } catch (e: any) {
+      const errorMsg = e?.message || String(e);
+      if (e?.code === 'ERR_NETWORK' || errorMsg === 'Network Error') {
+        console.error("Network error fetching employer data:", errorMsg);
+        showAlert?.('error', 'Network error. Please ensure all services are running.');
+      } else {
+        console.error("Error fetching employer data:", e);
+      }
+    }
     finally {
       fetchInFlightRef.current = false;
       setLoading(false);
     }
-  }, [session, selectedJob]);
+  }, [session, selectedJob, showAlert]);
 
   useEffect(() => { if (status === "authenticated") fetchData(); }, [session, status]);
 
@@ -201,7 +230,7 @@ function EmployerDashboardContent() {
   useEffect(() => {
     if (status === "unauthenticated") {
       setJobs([]); setApplications([]); setRecentCandidates([]);
-      setCredits(0); setConversations([]); setSelectedContact(null);
+      setConversations([]); setSelectedContact(null);
       setSelectedJob([]); setChartData([]); setEmployerProfile({});
       setProfileCompletion(0); setStats({ totalJobs: 0, totalApplications: 0 });
       localStorage.removeItem("employerSessionData");
@@ -214,6 +243,22 @@ function EmployerDashboardContent() {
     const interval = setInterval(() => fetchData(), 30000);
     return () => clearInterval(interval);
   }, [session, fetchData]);
+
+  useEffect(() => {
+    if (tab !== "messages") return;
+    const timeout = setTimeout(() => {
+      fetchData();
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [tab, fetchData]);
+
+  useEffect(() => {
+    if (tab !== "messages" || !selectedContact?.id) return;
+    const timeout = setTimeout(() => {
+      fetchData();
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [tab, selectedContact?.id, fetchData]);
 
   useEffect(() => {
     if (!session?.user) return;
@@ -254,6 +299,7 @@ function EmployerDashboardContent() {
 
   const handleOpenProfileBubble = (contact: any) => {
     if (!contact?.id) return;
+    setFloatingChatEnabled(true);
     setProfileBubbleContact(contact);
   };
 
@@ -267,20 +313,50 @@ function EmployerDashboardContent() {
     });
   };
 
-  const handleOpenJobModal = () => {
+  const handleOpenJobModal = async () => {
     if (profileCompletion < 100) {
-      alert("Ажлын зар оруулахын өмнө компанийн профайлаа 100% бөглөнө үү.");
+      showAlert("Ажлын зар оруулахын өмнө компанийн профайлаа 100% бөглөнэ үү.", "warning");
       setShowProfile(true);
       return;
     }
+
+    try {
+      const entitlementsRes = await authenticatedFetch(
+        API_URLS.user.entitlements((session?.user as any)?.id),
+      );
+      const proActive = entitlementsRes.data?.proActive === true;
+      if (!proActive && jobs.length >= 2) {
+        showAlert("Free employer plan-аар 2 ажлын зар нийтэлж болно. Pro plan руу ахиулна уу.", "warning");
+        setShowUpgradePlan(true);
+        return;
+      }
+    } catch {
+      showAlert("Plan эрхийг шалгаж чадсангүй. Дахин оролдоно уу.", "error");
+      return;
+    }
+
     setShowModal(true);
   };
+
+  useEffect(() => {
+    const handleAiCandidateChat = (event: Event) => {
+      const candidate = (event as CustomEvent<any>).detail;
+      if (!candidate?.id) return;
+      setSelectedContact(candidate);
+      addConversationOptimistically(candidate);
+      router.push("?tab=messages");
+      window.requestAnimationFrame(() => scrollToChatInputRef.current?.());
+    };
+
+    window.addEventListener("jobhub:ai-open-candidate-chat", handleAiCandidateChat);
+    return () => window.removeEventListener("jobhub:ai-open-candidate-chat", handleAiCandidateChat);
+  }, [router]);
 
   const handleJobImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      alert("Зөвхөн зураг файл сонгоно уу.");
+      showAlert("Зөвхөн зураг файл сонгоно уу.", "warning");
       e.target.value = "";
       return;
     }
@@ -289,7 +365,7 @@ function EmployerDashboardContent() {
       const image = await compressImageFile(file, { maxWidth: 1200, maxHeight: 800, quality: 0.78 });
       setJobImage(image);
     } catch {
-      alert("Зураг боловсруулахад алдаа гарлаа.");
+      showAlert("Зураг боловсруулахад алдаа гарлаа.", "error");
       e.target.value = "";
     }
   };
@@ -297,7 +373,7 @@ function EmployerDashboardContent() {
   const handleSubmit = async (e: any) => {
     e.preventDefault();
     if (profileCompletion < 100) {
-      alert("Ажлын зар оруулахын өмнө компанийн профайлаа 100% бөглөнө үү.");
+      showAlert("Ажлын зар оруулахын өмнө компанийн профайлаа 100% бөглөнэ үү.", "warning");
       setShowProfile(true);
       return;
     }
@@ -316,7 +392,14 @@ function EmployerDashboardContent() {
         jobType: "FULL_TIME", experience: "1-3",
       });
       fetchData();
-    } catch { alert("Алдаа гарлаа"); }
+    } catch (error: unknown) {
+      if ((error as { response?: { status?: number; data?: { code?: string } } })?.response?.status === 402) {
+        showAlert("Free employer plan-аар 2 ажлын зар нийтэлж болно. Pro plan руу ахиулна уу.", "warning");
+        setShowUpgradePlan(true);
+        return;
+      }
+      showAlert("Алдаа гарлаа", "error");
+    }
   };
 
   const handleApproveCandidate = async (applicationId: number) => {
@@ -341,7 +424,7 @@ function EmployerDashboardContent() {
       }
       await fetchData();
       if (approvedContact) addConversationOptimistically(approvedContact);
-    } catch (e) { console.error("Failed to approve:", e); alert("Алдаа гарлаа"); }
+    } catch (e) { console.error("Failed to approve:", e); showAlert("Алдаа гарлаа", "error"); }
     finally { setProcessingApplicationId(null); }
   };
 
@@ -354,7 +437,7 @@ function EmployerDashboardContent() {
         prev?.applicationId === applicationId ? { ...prev, applicationStatus: "REJECTED" } : prev
       );
       await fetchData();
-    } catch (e) { console.error("Failed to reject:", e); alert("Алдаа гарлаа"); }
+    } catch (e) { console.error("Failed to reject:", e); showAlert("Алдаа гарлаа", "error"); }
     finally { setProcessingApplicationId(null); }
   };
 
@@ -367,12 +450,19 @@ function EmployerDashboardContent() {
 
   return (
     <DashboardLayout role="employer">
-      <div className="flex h-screen bg-[#0a0f1e] overflow-hidden">
+      <div className="flex h-[100dvh] min-w-0 overflow-hidden bg-[#0a0f1e]">
 
         {/* ── LEFT SIDEBAR ── */}
         <aside className="w-[220px] min-w-[220px] bg-[#0d1426] border-r border-white/[0.06] flex flex-col py-4 px-3 gap-1 hidden lg:flex">
           <div className="flex items-center gap-2.5 px-3 py-3 mb-4">
-            <div className="w-8 h-8 bg-[#4F67FF] rounded-lg flex items-center justify-center font-black text-sm text-white">H</div>
+            <Image
+              src="/logo.png"
+              alt="JobHub"
+              width={32}
+              height={32}
+              className="h-8 w-8 rounded-lg object-contain"
+              priority
+            />
             <span className="text-white font-black text-base tracking-tight">JobHub</span>
           </div>
           {[
@@ -387,32 +477,36 @@ function EmployerDashboardContent() {
                 tab === item.key ? "bg-[#4F67FF]/10 text-[#4F67FF]" : "text-white/40 hover:text-white/70 hover:bg-white/[0.04]"
               }`}
             >
-              {item.icon}{item.label}
+              {item.icon}
+              <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                <span className="truncate">{item.label}</span>
+                {item.key === "messages" && unreadChatCount > 0 && (
+                  <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-black text-white">
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
-          <div className="mt-auto">
-            <button onClick={() => setShowSettings(true)}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-white/40 hover:text-white/70 hover:bg-white/[0.04] transition-all w-full"
-            >
-              <Settings size={15} /> Тохиргоо
-            </button>
-          </div>
+          <button onClick={() => setShowSettings(true)}
+            className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[12px] font-semibold text-white/40 transition-all hover:bg-white/[0.04] hover:text-white/70"
+          >
+            <Settings size={15} /> Тохиргоо
+          </button>
         </aside>
 
         {/* ── MAIN CONTENT ── */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <header className="min-h-[60px] bg-[#0d1426] border-b border-white/[0.06] flex items-center px-3 md:px-6 gap-3 shrink-0">
-            <div className="hidden sm:flex items-center gap-2 flex-1 max-w-[440px] bg-white/[0.04] border border-white/[0.07] rounded-xl px-4 py-2">
-              <Search size={13} className="text-white/30 shrink-0" />
-              <input placeholder="Ажлын байр, үр чадвар, компани хайх..." className="bg-transparent text-[12px] text-white outline-none w-full placeholder:text-white/25" />
-              <div className="flex items-center gap-1 bg-white/[0.06] rounded-lg px-2 py-1 cursor-pointer shrink-0">
-                <MapPin size={10} className="text-white/40" />
-                <span className="text-[10px] text-white/40">Бүх байршил</span>
-                <ChevronDown size={10} className="text-white/30" />
-              </div>
-            </div>
             <div className="ml-auto flex items-center gap-2 md:gap-3">
               <NotificationCenter />
+              <button
+                onClick={() => setAiOpen(!aiOpen)}
+                className="w-9 h-9 flex items-center justify-center bg-purple-500/20 text-purple-300 rounded-xl hover:bg-purple-500/30 transition-all"
+                aria-label="AI"
+              >
+                <Sparkles size={16} />
+              </button>
               <div className="relative">
                 <div onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
                   className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.07] rounded-xl px-3 py-1.5 cursor-pointer hover:bg-white/[0.07] transition-all"
@@ -442,6 +536,9 @@ function EmployerDashboardContent() {
                     <button onClick={() => { setShowSettings(true); setIsProfileDropdownOpen(false); }}
                       className="w-full px-4 py-2 text-left text-sm text-white hover:bg-white/[0.05] transition-all"
                     >Тохиргоо</button>
+                    <button onClick={() => { setShowUpgradePlan(true); setIsProfileDropdownOpen(false); }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-left text-sm text-emerald-300 hover:bg-white/[0.05] transition-all"
+                    ><Sparkles size={14} /> Түвшин ахиулах</button>
                     <button onClick={() => signOut({ callbackUrl: "/login" })}
                       className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-red-500/10 transition-all border-t border-[#1e2535] flex items-center gap-2"
                     ><LogOut size={14} /> Гарах</button>
@@ -469,36 +566,52 @@ function EmployerDashboardContent() {
               </div>
             )}
 
-            <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <h1 className="text-lg sm:text-[22px] font-black text-white leading-tight break-words">
-                  Тавтай морил, {employerProfile?.fullName || session?.user?.email} 👋
-                </h1>
-                <p className="text-[12px] text-white/35 mt-1">Өнөөдрийн ажлын зар, кандидатуудын тойм</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => setAiOpen(true)}
-                  className="flex items-center gap-2 bg-white/[0.06] hover:bg-white/[0.1] text-white font-black text-[12px] px-4 py-3 rounded-xl transition-all"
-                >
-                  <Sparkles size={15} /> AI
-                </button>
-                <button onClick={handleOpenJobModal}
-                  className="flex items-center gap-2 bg-[#4F67FF] hover:bg-[#3d52e0] text-white font-black text-[12px] px-4 sm:px-5 py-3 rounded-xl transition-all shadow-lg shadow-[#4F67FF]/20"
-                ><Plus size={15} /> Ажлын байр нэмэх</button>
-              </div>
-            </div>
+            {tab === "home" && (
+              <>
+                <div className="flex flex-col gap-4 mb-6 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <h1 className="text-lg sm:text-[22px] font-black text-white leading-tight break-words">
+                      Тавтай морил, {employerProfile?.fullName || session?.user?.email} 👋
+                    </h1>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button onClick={handleOpenJobModal}
+                      className="flex items-center gap-2 bg-[#4F67FF] hover:bg-[#3d52e0] text-white font-black text-[12px] px-4 sm:px-5 py-3 rounded-xl transition-all shadow-lg shadow-[#4F67FF]/20"
+                    ><Plus size={15} /> Ажлын байр нэмэх</button>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 md:gap-4 mb-6">
-              <StatCard label="Идэвхтэй ажлын байр" value={jobs.filter(j => j.status === "ACTIVE").length} sub="Бүх идэвхтэй зарууд" subColor="#10B981" color="#4F67FF" bg="#4F67FF" icon={<Briefcase size={20} />} />
-              <StatCard label="Нийт анкет" value={applications.length} sub={`${applications.length} нийт сонгогдсон`} subColor="#10B981" color="#10B981" bg="#10B981" icon={<Users size={20} />} />
-              <StatCard label="Үнэлэгдсэн" value={applications.filter(a => a.status === "REVIEWED").length} sub={`${((applications.filter(a => a.status === "REVIEWED").length / (applications.length || 1)) * 100).toFixed(0)}% үнэлэгдсэн`} subColor="#A855F7" color="#A855F7" bg="#A855F7" icon={<FileText size={20} />} />
-              <StatCard label="Идэвхтэй ажил" value={jobs.length} sub={`${jobs.length} ажлын байр нийтлэгдсэн`} subColor="#F59E0B" color="#F59E0B" bg="#F59E0B" icon={<Eye size={20} />} />
-            </div>
+                <div className="grid grid-cols-1 gap-3 md:gap-4 mb-6 sm:grid-cols-2 xl:grid-cols-3">
+                  <StatCard label="Идэвхтэй ажлын байр" value={jobs.filter(j => j.status === "ACTIVE").length} sub="Бүх идэвхтэй зарууд" subColor="#10B981" color="#4F67FF" bg="#4F67FF" icon={<Briefcase size={20} />} />
+                  <StatCard label="Нийт анкет" value={applications.length} sub={`${applications.length} нийт сонгогдсон`} subColor="#10B981" color="#10B981" bg="#10B981" icon={<Users size={20} />} />
+                  <StatCard label="Идэвхтэй ажил" value={jobs.length} sub={`${jobs.length} ажлын байр нийтлэгдсэн`} subColor="#F59E0B" color="#F59E0B" bg="#F59E0B" icon={<Eye size={20} />} />
+                </div>
+              </>
+            )}
 
             <div className="flex flex-col gap-5 w-full">
-              {tab === "home" && <HomeView jobs={jobs} applications={applications} chartData={chartData} credits={credits} />}
-              {tab === "jobs" && <JobsView jobs={jobs} applications={applications} onSelectJob={setSelectedJob} />}
+              {tab === "home" && (
+                <>
+                  <HomeView chartData={chartData} />
+                </>
+              )}
+              {tab === "jobs" && (
+                <>
+                  <JobsView jobs={jobs} applications={applications} onSelectJob={setSelectedJob} />
+                  {selectedJob?.id && (
+                    <CandidateRecommendations
+                      jobId={selectedJob.id}
+                      jobTitle={selectedJob.title || "Ажлын байр"}
+                      jobDescription={selectedJob.description}
+                      onSelectCandidate={(candidate) => {
+                        setSelectedCandidate(candidate);
+                        setSelectedContact(candidate);
+                        addConversationOptimistically(candidate);
+                      }}
+                    />
+                  )}
+                </>
+              )}
               {tab === "candidates" && (
                 <CandidatesView
                   applications={applications} jobs={jobs}
@@ -529,7 +642,7 @@ function EmployerDashboardContent() {
         </div>
       </div>
 
-      <FloatingChat />
+      <FloatingChat enabled={floatingChatEnabled} />
       <AiAssistantPanel
         open={aiOpen}
         onClose={() => setAiOpen(false)}
@@ -640,6 +753,13 @@ function EmployerDashboardContent() {
           onClose={() => setShowSettings(false)}
         />
       )}
+      {showUpgradePlan && (
+        <UpgradePlanModal
+          userId={(session?.user as any)?.id}
+          role="employer"
+          onClose={() => setShowUpgradePlan(false)}
+        />
+      )}
 
       {/* ── CV PREVIEW MODAL ── */}
       {selectedCandidate && (
@@ -676,7 +796,14 @@ function EmployerDashboardContent() {
                   : "text-white/40 hover:text-white"
               }`}
             >
-              <Icon size={18} />
+              <span className="relative">
+                <Icon size={18} />
+                {key === "messages" && unreadChatCount > 0 && (
+                  <span className="absolute -right-3 -top-2 inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-black text-white">
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </span>
+                )}
+              </span>
               <span className="leading-none">{label}</span>
             </button>
           ))}

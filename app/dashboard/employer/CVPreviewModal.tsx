@@ -45,8 +45,8 @@ export default function CVPreviewModal({
     link.click();
   };
 
-  const ActionButtons = () => (
-    <div className="flex items-center gap-2">
+  const actionButtons = (
+    <div className="flex flex-wrap items-center gap-2">
       {applicationStatus && (
         <span className="px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.06] text-[10px] font-black uppercase text-white/45">
           {applicationStatus}
@@ -78,15 +78,15 @@ export default function CVPreviewModal({
   if (!hasCV) {
     console.warn("⚠️ CVPreviewModal: No CV data available");
     return (
-      <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <div className="bg-[#0d1117] border border-[#1e2535] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2535] shrink-0">
-            <div className="flex items-center gap-2">
+      <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4">
+        <div className="my-3 flex max-h-[calc(100dvh-24px)] w-full max-w-2xl flex-col rounded-2xl border border-[#1e2535] bg-[#0d1117]">
+          <div className="flex flex-col gap-3 border-b border-[#1e2535] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex flex-wrap items-center gap-2">
               <AlertCircle size={16} className="text-[#EF4444]" />
               <p className="text-white font-semibold text-sm">CV олдсонгүй</p>
             </div>
             <div className="flex items-center gap-2">
-              <ActionButtons />
+              {actionButtons}
               <button onClick={onClose} className="text-gray-500 hover:text-white transition-all">
                 <X size={18} />
               </button>
@@ -103,19 +103,19 @@ export default function CVPreviewModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-      <div className="bg-[#0d1117] border border-[#1e2535] rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-3 sm:items-center sm:p-4">
+      <div className="my-3 flex max-h-[calc(100dvh-24px)] w-full max-w-2xl flex-col rounded-2xl border border-[#1e2535] bg-[#0d1117]">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2535] shrink-0">
-          <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-3 border-b border-[#1e2535] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <div className="flex min-w-0 items-center gap-2">
             <FileText size={16} className="text-[#4c6ef5]" />
             <div>
               <p className="text-white font-semibold text-sm">{candidateName} — CV</p>
-              {cvFileName && <p className="text-white/40 text-xs">{cvFileName}</p>}
+              {cvFileName && <p className="truncate text-xs text-white/40">{cvFileName}</p>}
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <ActionButtons />
+          <div className="flex flex-wrap items-center gap-2">
+            {actionButtons}
             {cvData && (
               <button
                 onClick={handleDownload}
@@ -131,11 +131,11 @@ export default function CVPreviewModal({
         </div>
 
         {/* CV Content */}
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-auto p-4 sm:p-6">
           {isPDF && (
             <iframe
               src={cvData}
-              className="w-full h-[65vh] rounded-xl border border-[#1e2535]"
+              className="h-[62dvh] w-full rounded-xl border border-[#1e2535]"
               title="CV Preview"
               onError={() => console.error("❌ PDF iframe failed to load")}
             />

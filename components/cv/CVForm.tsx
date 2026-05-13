@@ -3,6 +3,8 @@
 import React, { useState } from 'react';
 import { ChevronLeft, ChevronRight, Upload, Plus, X } from 'lucide-react';
 import { API_URLS } from '@/lib/apiConfig';
+import { authenticatedPost } from '@/lib/axiosClient';
+import { useAlert } from '@/components/AlertProvider';
 
 interface PersonalInfo {
   name: string;
@@ -30,9 +32,11 @@ interface Education {
 interface CVFormProps {
   onCVGenerated: (htmlContent: string) => void;
   isLoading?: boolean;
+  userId?: number | string;
 }
 
-export default function CVForm({ onCVGenerated, isLoading = false }: CVFormProps) {
+export default function CVForm({ onCVGenerated, isLoading = false, userId }: CVFormProps) {
+  const { showAlert } = useAlert();
   const [currentStep, setCurrentStep] = useState(1);
   const [personalInfo, setPersonalInfo] = useState<PersonalInfo>({
     name: '',
@@ -124,11 +128,23 @@ export default function CVForm({ onCVGenerated, isLoading = false }: CVFormProps
 
   const handleSubmit = async () => {
     if (!personalInfo.name || !personalInfo.email) {
-      alert('Нэр болон имэйл хаяг заавал оруулна уу');
+      showAlert('Нэр болон имэйл хаяг заавал оруулна уу', 'error');
       return;
     }
 
     try {
+      if (userId) {
+        try {
+          await authenticatedPost(API_URLS.user.useEntitlement(userId), { feature: 'aiCv' });
+        } catch (entitlementError: unknown) {
+          if ((entitlementError as { response?: { status?: number } })?.response?.status === 402) {
+            showAlert('Free эрхээр AI CV 1 удаа үүсгэнэ. Pro эрх 10,000₮/сар бөгөөд profile/settings дээрээс түвшин ахиулж хязгааргүй ашиглана.', 'info');
+            return;
+          }
+          throw entitlementError;
+        }
+      }
+
       const response = await fetch(API_URLS.ai.generateCv(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -149,7 +165,7 @@ export default function CVForm({ onCVGenerated, isLoading = false }: CVFormProps
       const data = await response.json();
       onCVGenerated(data.htmlContent);
     } catch (error: any) {
-      alert(error.message || 'CV үүсгэхэд алдаа гарлаа');
+      showAlert(error.message || 'CV үүсгэхэд алдаа гарлаа', 'error');
     }
   };
 
@@ -250,7 +266,7 @@ export default function CVForm({ onCVGenerated, isLoading = false }: CVFormProps
                 onChange={e => handleExperienceChange(idx, 'position', e.target.value)}
                 className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <input
                   type="month"
                   placeholder="Эхлэх сар"

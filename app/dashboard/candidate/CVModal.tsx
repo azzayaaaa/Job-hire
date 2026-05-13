@@ -1,25 +1,40 @@
 "use client";
 import { useState } from "react";
 import { X, FileText, Sparkles } from "lucide-react";
-import axios from "axios";
-import { authenticatedPatch } from "@/lib/axiosClient";
+import { authenticatedPatch, authenticatedPost } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import { useAlert } from "@/components/AlertProvider";
 
 const loadSavedCV = (userId: number) => {
-  if (typeof window === "undefined") return { name: "", data: "" };
+  if (typeof window === "undefined") return { name: "", data: "", text: "" };
 
   const saved = window.localStorage.getItem(`userCV_${userId}`);
-  if (!saved) return { name: "", data: "" };
+  if (!saved) return { name: "", data: "", text: "" };
 
   try {
-    const parsed = JSON.parse(saved) as { name?: string; data?: string };
+    const parsed = JSON.parse(saved) as { name?: string; data?: string; text?: string };
     return {
       name: parsed.name || "",
       data: parsed.data || "",
+      text: parsed.text || "",
     };
   } catch {
-    return { name: "", data: "" };
+    return { name: "", data: "", text: "" };
   }
+};
+
+const getErrorStatus = (error: unknown) =>
+  (error as { response?: { status?: number } })?.response?.status;
+
+const isFileDataUrl = (value: string) =>
+  /^data:(application\/pdf|image\/)/i.test(value);
+
+const dataUrlToFile = async (dataUrl: string, fileName: string) => {
+  const response = await fetch(dataUrl);
+  const blob = await response.blob();
+  return new File([blob], fileName || "uploaded-cv", {
+    type: blob.type || "application/octet-stream",
+  });
 };
 
 export default function CVModal({
@@ -29,14 +44,19 @@ export default function CVModal({
   onClose: () => void;
   userId: number;
 }) {
+  const { showAlert } = useAlert();
   const [initialCV] = useState(() => loadSavedCV(userId));
   const [cvName, setCvName] = useState(initialCV.name);
   const [cvData, setCvData] = useState(initialCV.data);
+  const [cvText, setCvText] = useState(initialCV.text);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [userInfo, setUserInfo] = useState("");
   const [showAIGenerator, setShowAIGenerator] = useState(false);
   const [aiGenerating, setAiGenerating] = useState(false);
   const [generatedCV, setGeneratedCV] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [paywall, setPaywall] = useState(false);
+  const [upgrading, setUpgrading] = useState(false);
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -45,37 +65,74 @@ export default function CVModal({
     reader.onload = (ev) => {
       setCvName(file.name);
       setCvData(ev.target?.result as string);
+      setCvText("");
+      setSelectedFile(file);
     };
     reader.readAsDataURL(file);
   };
 
   const handleGenerateCV = async () => {
     if (!userInfo.trim()) {
-      alert("Өөрийнхөө мэдээллийг оруулна уу");
+      showAlert("Өөрийнхөө мэдээллийг оруулна уу", "warning");
       return;
     }
 
     setAiGenerating(true);
     try {
-      const res = await axios.post("http://localhost:5004/api/ai/generate-cv", {
-        userInfo: userInfo,
-        fileType: null,
-      });
+      try {
+        await authenticatedPost(API_URLS.user.useEntitlement(userId), { feature: "aiCv" });
+      } catch (entitlementError: unknown) {
+        if (getErrorStatus(entitlementError) === 402) {
+          setPaywall(true);
+          return;
+        }
+        throw entitlementError;
+      }
 
-      setGeneratedCV(res.data.cv);
+      const response = await fetch(API_URLS.ai.generateCv(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userInfo,
+          fileType: null,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || `HTTP ${response.status}`);
+      }
+      const generated = data.htmlContent || data.cv || data.cvText || "";
+      if (!generated) throw new Error("Empty generated CV");
+
+      setGeneratedCV(generated);
       setCvName("AI-Generated CV.txt");
-      setCvData(res.data.cv);
+      setCvData(generated);
+      setCvText(generated);
+      setSelectedFile(null);
     } catch (error) {
       console.error(error);
-      alert("CV үүсгэхэд алдаа гарлаа");
+      showAlert("CV үүсгэхэд алдаа гарлаа", "error");
     } finally {
       setAiGenerating(false);
     }
   };
 
+  const handleUpgrade = async () => {
+    setUpgrading(true);
+    try {
+      await authenticatedPost(API_URLS.user.upgradePlan(userId), { plan: "PRO_MONTHLY" });
+      setPaywall(false);
+      showAlert("Pro эрх идэвхжлээ. Одоо AI CV-г хязгааргүй ашиглаж болно.", "success");
+    } catch {
+      showAlert("Төлөвлөгөө идэвхжүүлэхэд алдаа гарлаа.", "error");
+    } finally {
+      setUpgrading(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!cvData) {
-      alert("CV файл эсвэл AI үүсгүүлсэн CV оруулна уу");
+      showAlert("CV файл эсвэл AI үүсгүүлсэн CV оруулна уу", "warning");
       return;
     }
     
@@ -88,15 +145,37 @@ export default function CVModal({
     
     setIsSaving(true);
     try {
+      let readableCvText = cvText || cvData;
+      if (selectedFile || isFileDataUrl(cvData)) {
+        const fileToParse =
+          selectedFile || (await dataUrlToFile(cvData, cvName || "uploaded-cv.pdf"));
+        const formData = new FormData();
+        formData.append("file", fileToParse);
+
+        const parsedCvResponse = await authenticatedPost(
+          API_URLS.ai.parseCv(),
+          formData,
+          { headers: { "Content-Type": "multipart/form-data" } },
+        );
+        readableCvText = String(parsedCvResponse.data?.cvText || "").trim();
+        if (!readableCvText) {
+          throw new Error("CV text extraction returned empty text");
+        }
+        setCvText(readableCvText);
+      }
+
       const storageKey = `userCV_${userId}`;
       // Save to localStorage first (for offline support)
-      localStorage.setItem(storageKey, JSON.stringify({ name: cvName, data: cvData }));
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({ name: cvName, data: cvData, text: readableCvText }),
+      );
       
       console.log("📱 CVModal: Saved to localStorage, now sending to backend...");
       
       // Send CV to user-service directly with both cvText and cvFileName
       const response = await authenticatedPatch(API_URLS.user.profile(userId), {
-        cvText: cvData,
+        cvText: readableCvText,
         cvFileName: cvName,
       });
       
@@ -106,31 +185,46 @@ export default function CVModal({
         hasCVText: !!response.data?.cvText,
       });
       
-      alert("CV хадгалагдлаа!");
+      showAlert("CV хадгалагдлаа!", "success");
       onClose();
     } catch (error) {
       console.error("❌ CVModal: CV save error:", error);
-      alert("CV хадгалахад алдаа. Дахин оролдоно уу.");
+      showAlert("CV хадгалахад алдаа. Дахин оролдоно уу.", "error");
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-[#0d1117] border border-[#1e2535] rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2535] sticky top-0 bg-[#0d1117]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-3 sm:items-center sm:p-4">
+      <div className="my-3 max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-2xl border border-[#1e2535] bg-[#0d1117]">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1e2535] bg-[#0d1117] px-4 py-4 sm:px-6">
           <p className="text-white font-semibold">CV оруулах</p>
           <button onClick={onClose} className="text-gray-500 hover:text-white">
             <X size={18} />
           </button>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="space-y-4 p-4 sm:p-6">
+          {paywall && (
+            <div className="rounded-2xl border border-[#4c6ef5]/30 bg-[#3b5bdb]/10 p-4">
+              <p className="text-sm font-black text-white">Free AI CV лимит дууссан</p>
+              <p className="mt-1 text-xs leading-5 text-gray-400">
+                Free эрхээр AI-аар CV 1 удаа үүсгэнэ. Pro эрх 10,000₮/сар бөгөөд role-оосоо хамаарах боломжуудаа хязгааргүй ашиглана.
+              </p>
+              <button
+                onClick={handleUpgrade}
+                disabled={upgrading}
+                className="mt-3 w-full rounded-xl bg-[#3b5bdb] py-2.5 text-sm font-black text-white hover:bg-[#4c6ef5] disabled:opacity-50"
+              >
+                {upgrading ? "Идэвхжүүлж байна..." : "Pro авах - 10,000₮/сар"}
+              </button>
+            </div>
+          )}
           {!showAIGenerator ? (
             <>
               <div
                 onClick={() => document.getElementById("cvInput")?.click()}
-                className="border-2 border-dashed border-[#1e2535] hover:border-[#3b5bdb]/50 rounded-2xl p-10 text-center cursor-pointer transition-all"
+                className="cursor-pointer rounded-2xl border-2 border-dashed border-[#1e2535] p-6 text-center transition-all hover:border-[#3b5bdb]/50 sm:p-10"
               >
                 <FileText size={36} className="text-[#4c6ef5] mx-auto mb-3" />
                 {cvName ? (
@@ -151,7 +245,7 @@ export default function CVModal({
                 <Sparkles size={16} /> AI-аар CV үүсгүүлэх
               </button>
 
-              <div className="flex gap-2 pt-2 border-t border-[#1e2535]">
+              <div className="flex flex-col gap-2 border-t border-[#1e2535] pt-2 sm:flex-row">
                 <button
                   onClick={handleSave}
                   disabled={!cvData || isSaving}
@@ -186,7 +280,7 @@ export default function CVModal({
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <button
                   onClick={handleGenerateCV}
                   disabled={aiGenerating || !userInfo.trim()}

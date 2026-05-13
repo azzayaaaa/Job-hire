@@ -75,7 +75,7 @@ model StudyPlan {
 
 model ChatMessage {
   id          Int      @id @default(autoincrement())
-  message     String   @db.Text
+  message     String   @db.LongText
   senderId    Int
   receiverId  Int
   sender      User     @relation("SentMessages", fields: [senderId], references: [id])

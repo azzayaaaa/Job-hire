@@ -1,10 +1,19 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Bell, Check, KeyRound, Loader2, Mail, ShieldCheck, X } from "lucide-react";
+import {
+  Bell,
+  Check,
+  KeyRound,
+  Loader2,
+  Mail,
+  ShieldCheck,
+  X,
+} from "lucide-react";
 import axios from "axios";
 import { API_URLS } from "@/lib/apiConfig";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
+import { useAlert } from "@/components/AlertProvider";
 
 type AccountSettingsModalProps = {
   userId: number | string;
@@ -27,27 +36,43 @@ export default function AccountSettingsModal({
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const { showAlert } = useAlert();
 
   const accent = role === "employer" ? "#4F67FF" : "#2563EB";
 
   useEffect(() => {
+    let active = true;
+
     const fetchProfile = async () => {
       try {
-        const res = await authenticatedFetch(API_URLS.auth.profile(userId));
-        setEmail(res.data?.email || "");
-        setEmailNotifications(res.data?.emailNotifications ?? true);
-      } catch (error) {
-        console.error("Failed to fetch settings profile:", error);
+        let profileData: any = null;
+
+        try {
+          const authProfile = await authenticatedFetch(API_URLS.auth.profile(userId));
+          profileData = authProfile.data;
+        } catch {
+          const userProfile = await authenticatedFetch(API_URLS.user.profile(userId));
+          profileData = userProfile.data;
+        }
+
+        if (!active) return;
+        setEmail(profileData?.email || "");
+        setEmailNotifications(profileData?.emailNotifications ?? true);
+      } catch (error: any) {
+        console.warn("Failed to fetch settings profile:", error?.message || error);
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchProfile();
+    return () => {
+      active = false;
+    };
   }, [userId]);
 
   const handleSaveEmail = async () => {
-    if (!email.trim()) return alert("Имэйл хаягаа оруулна уу.");
+    if (!email.trim()) return showAlert("Имэйл хаягаа оруулна уу.", "error");
 
     setSavingEmail(true);
     try {
@@ -55,9 +80,9 @@ export default function AccountSettingsModal({
         userId,
         email: email.trim(),
       });
-      alert("Имэйл амжилттай шинэчлэгдлээ. Дараагийн нэвтрэлтээс session шинэчлэгдэнэ.");
+      showAlert("Имэйл амжилттай шинэчлэгдлээ. Дараагийн нэвтрэлтээс session шинэчлэгдэнэ.", "success");
     } catch {
-      alert("Имэйл шинэчлэхэд алдаа гарлаа.");
+      showAlert("Имэйл шинэчлэхэд алдаа гарлаа.", "error");
     } finally {
       setSavingEmail(false);
     }
@@ -67,6 +92,7 @@ export default function AccountSettingsModal({
     const next = !emailNotifications;
     setEmailNotifications(next);
     setSavingNotifications(true);
+
     try {
       await axios.put(API_URLS.notifications.updatePreferences(userId), {
         emailNotifications: next,
@@ -74,30 +100,30 @@ export default function AccountSettingsModal({
     } catch (error) {
       setEmailNotifications(!next);
       console.error("Failed to update notification preference:", error);
-      alert("Мэдэгдлийн тохиргоо хадгалахад алдаа гарлаа.");
+      showAlert("Мэдэгдлийн тохиргоо хадгалахад алдаа гарлаа.", "error");
     } finally {
       setSavingNotifications(false);
     }
   };
 
   const handleSendPasswordCode = async () => {
-    if (!email.trim()) return alert("Эхлээд имэйл хаягаа оруулна уу.");
+    if (!email.trim()) return showAlert("Эхлээд имэйл хаягаа оруулна уу.", "error");
 
     setSendingCode(true);
     try {
       await axios.post(API_URLS.auth.forgotPassword(), { email: email.trim() });
       setCodeSent(true);
-      alert("Нууц үг солих код таны имэйл рүү илгээгдлээ.");
+      showAlert("Нууц үг солих код таны имэйл рүү илгээгдлээ.", "success");
     } catch {
-      alert("Код илгээхэд алдаа гарлаа.");
+      showAlert("Код илгээхэд алдаа гарлаа.", "error");
     } finally {
       setSendingCode(false);
     }
   };
 
   const handleChangePassword = async () => {
-    if (code.length !== 6) return alert("6 оронтой код оруулна уу.");
-    if (newPassword.length < 6) return alert("Нууц үг хамгийн багадаа 6 тэмдэгт байна.");
+    if (code.length !== 6) return showAlert("6 оронтой код оруулна уу.", "error");
+    if (newPassword.length < 6) return showAlert("Нууц үг хамгийн багадаа 6 тэмдэгт байна.", "error");
 
     setChangingPassword(true);
     try {
@@ -109,9 +135,9 @@ export default function AccountSettingsModal({
       setCode("");
       setNewPassword("");
       setCodeSent(false);
-      alert("Нууц үг амжилттай шинэчлэгдлээ.");
+      showAlert("Нууц үг амжилттай шинэчлэгдлээ.", "success");
     } catch {
-      alert("Нууц үг шинэчлэхэд алдаа гарлаа. Кодоо шалгана уу.");
+      showAlert("Нууц үг шинэчлэхэд алдаа гарлаа. Кодоо шалгана уу.", "error");
     } finally {
       setChangingPassword(false);
     }
@@ -119,7 +145,7 @@ export default function AccountSettingsModal({
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/70 p-4 backdrop-blur-md">
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-white/10 bg-[#0b1120] shadow-2xl">
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-hidden rounded-[28px] border border-white/10 bg-[#0b1120] shadow-2xl">
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.25em] text-white/35">
@@ -140,8 +166,8 @@ export default function AccountSettingsModal({
             <Loader2 className="animate-spin" style={{ color: accent }} />
           </div>
         ) : (
-          <div className="space-y-4 p-6">
-            <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+          <div className="grid max-h-[calc(92vh-82px)] gap-5 overflow-x-hidden overflow-y-auto p-6 md:grid-cols-2">
+            <section className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] p-5 md:col-span-2">
               <div className="mb-4 flex items-start gap-4">
                 <div className="grid h-11 w-11 place-items-center rounded-xl bg-blue-500/15 text-blue-300">
                   <Mail size={21} />
@@ -173,7 +199,7 @@ export default function AccountSettingsModal({
               </div>
             </section>
 
-            <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <section className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <div className="mb-4 flex items-start gap-4">
                 <div className="grid h-11 w-11 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300">
                   <Bell size={21} />
@@ -206,7 +232,7 @@ export default function AccountSettingsModal({
               </div>
             </section>
 
-            <section className="rounded-2xl border border-white/10 bg-white/[0.04] p-5">
+            <section className="min-w-0 rounded-2xl border border-white/10 bg-white/[0.04] p-5">
               <div className="mb-4 flex items-start gap-4">
                 <div className="grid h-11 w-11 place-items-center rounded-xl bg-red-500/15 text-red-300">
                   <KeyRound size={21} />
@@ -219,7 +245,7 @@ export default function AccountSettingsModal({
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <button
                   onClick={handleSendPasswordCode}
                   disabled={sendingCode}
@@ -235,24 +261,24 @@ export default function AccountSettingsModal({
                 )}
               </div>
 
-              <div className="mt-3 grid gap-3 sm:grid-cols-[140px_1fr_auto]">
+              <div className="mt-3 grid gap-3 sm:grid-cols-[132px_minmax(0,1fr)]">
                 <input
                   value={code}
                   onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                  className="rounded-xl border border-white/10 bg-[#070d19] px-4 py-3 text-center text-sm font-black tracking-[0.25em] text-white outline-none focus:border-red-500/60"
+                  className="min-w-0 rounded-xl border border-white/10 bg-[#070d19] px-4 py-3 text-center text-sm font-black tracking-[0.25em] text-white outline-none focus:border-red-500/60"
                   placeholder="000000"
                 />
                 <input
                   value={newPassword}
                   onChange={(event) => setNewPassword(event.target.value)}
-                  className="rounded-xl border border-white/10 bg-[#070d19] px-4 py-3 text-sm text-white outline-none focus:border-red-500/60"
+                  className="min-w-0 rounded-xl border border-white/10 bg-[#070d19] px-4 py-3 text-sm text-white outline-none focus:border-red-500/60"
                   placeholder="Шинэ нууц үг"
                   type="password"
                 />
                 <button
                   onClick={handleChangePassword}
                   disabled={changingPassword}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-black text-white hover:bg-red-500 disabled:opacity-60"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-red-600 px-5 py-3 text-sm font-black text-white hover:bg-red-500 disabled:opacity-60 sm:col-span-2"
                 >
                   {changingPassword ? <Loader2 className="animate-spin" size={16} /> : <Check size={16} />}
                   Солих

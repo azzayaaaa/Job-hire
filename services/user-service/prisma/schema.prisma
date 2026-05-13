@@ -14,11 +14,15 @@ model User {
   email            String         @unique
   password         String?
   userType         String         @default("CANDIDATE") 
-  credits          Int            @default(10)
+  credits          Int            @default(0)
   referralCode     String         @unique
   referredBy       Int?
   verificationCode String?        
   createdAt        DateTime       @default(now())
+  subscriptionPlan String         @default("FREE")
+  subscriptionExpiresAt DateTime?
+  freeCvGenerationsUsed Int       @default(0)
+  freeSelfImprovementUsed Int     @default(0)
   
   fullName         String?
   image            String?
@@ -44,6 +48,32 @@ model User {
   studyPlans       StudyPlan[]
   sentNotifications Notification[] @relation("sender")
   receivedNotifications Notification[] @relation("receiver")
+  paymentOrders   PaymentOrder[]
+}
+
+model PaymentOrder {
+  id             Int       @id @default(autoincrement())
+  orderId        String    @unique
+  userId         Int
+  user           User      @relation(fields: [userId], references: [id])
+  amountMnt      Int       @default(10000)
+  plan           String    @default("PRO_MONTHLY")
+  duration       String    @default("ONE_MONTH")
+  bankName       String    @default("TDB")
+  bankAccount    String    @default("140005000499582572")
+  bankHolderName String    @default("Аззаяа Баяртай")
+  transactionCode String?   @unique // Unique code for payment (e.g., JOB621)
+  screenshotUrl  String?   @db.LongText
+  status         String    @default("PENDING")
+  rejectReason   String?   @db.Text
+  reviewedAt     DateTime?
+  reviewedBy     Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
 }
 
 model Job {

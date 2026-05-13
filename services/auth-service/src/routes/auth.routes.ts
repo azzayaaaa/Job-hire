@@ -15,6 +15,7 @@ import {
     getAdminStats, 
     updateUserCredits, 
     updateUserRole, 
+    updateUserPlan,
     deleteUser 
 } from '../controllers/admin.controller';
 import { authMiddleware, adminMiddleware } from '../middleware/auth.middleware';
@@ -38,6 +39,7 @@ router.get('/admin/stats', authMiddleware, adminMiddleware, getAdminStats);
 router.get('/admin/users', authMiddleware, adminMiddleware, getAllUsers);
 router.post('/admin/update-credits', authMiddleware, adminMiddleware, updateUserCredits);
 router.post('/admin/update-role', authMiddleware, adminMiddleware, updateUserRole);
+router.post('/admin/update-plan', authMiddleware, adminMiddleware, updateUserPlan);
 router.delete('/admin/users/:id', authMiddleware, adminMiddleware, deleteUser);
 
 export default router;

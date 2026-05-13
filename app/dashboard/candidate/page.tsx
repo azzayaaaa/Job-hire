@@ -4,16 +4,15 @@ import Image from "next/image";
 import ProfileModal from "./ProfileModal";
 import CVModal from "./CVModal";
 import JobDetailModal from "./JobDetailModal";
-import SelfImprovementModal from "./SelfImprovementModal";
+import TodoApp from "./TodoApp";
 import MessagesView from "../employer/MessagesView";
 import FloatingChat from "@/components/FloatingChat";
 import AiAssistantPanel from "@/components/AiAssistantPanel";
 import NotificationCenter from "@/components/NotificationCenter";
 import AccountSettingsModal from "@/components/AccountSettingsModal";
+import UpgradePlanModal from "@/components/UpgradePlanModal";
  
-import CVForm from "@/components/cv/CVForm";
-import CVPreview from "@/components/cv/CVPreview";
-import React, { Suspense, useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useRef, useCallback } from "react";
 import DashboardLayout from "../DashboardLayout";
 import {
   Search,
@@ -22,7 +21,6 @@ import {
   Send,
   Briefcase,
   Bookmark,
-  Bell,
   ChevronDown,
   MapPin,
   Clock,
@@ -37,11 +35,9 @@ import {
   Copy,
   LayoutGrid,
   List,
-  Building2,
   BadgeCheck,
   Settings,
 } from "lucide-react";
-import axios from "axios";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { io } from "socket.io-client";
@@ -53,6 +49,8 @@ import {
   resetAxiosClient,
 } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import { useAlert } from "@/components/AlertProvider";
+import { CandidateJob, JobSortKey, useJobFilters } from "@/hooks/useJobFilters";
 
 // ─── Time formatting ──────────────────────────────────────────────────────────
 function getRelativeTime(createdAt: string | Date): string {
@@ -150,7 +148,7 @@ function formatSalary(amount: number): string {
     .replace(/\B(?=(\d{3})+(?!\d))/g, "'")}₮`;
 }
 
-function hydrateJobImages(jobs: any[]) {
+function hydrateJobImages(jobs: CandidateJob[]): CandidateJob[] {
   if (typeof window === "undefined") return jobs;
   return jobs.map((job) => {
     const employerProfile = JSON.parse(localStorage.getItem(`employerProfile_${job.employerId}`) || "{}");
@@ -203,6 +201,27 @@ function parseSalaryValue(value: unknown): number {
   return amount;
 }
 
+type CandidateProfileDraft = {
+  photo?: string;
+  lastName?: string;
+  firstName?: string;
+  phone?: string;
+  age?: string;
+  gender?: string;
+};
+
+function getIncompleteProfileFields(profile?: CandidateProfileDraft | null) {
+  const missing: string[] = [];
+  if (!profile?.photo) missing.push("цээж зураг");
+  if (!profile?.lastName?.trim()) missing.push("овог");
+  if (!profile?.firstName?.trim()) missing.push("нэр");
+  if (!/^\d{8}$/.test(profile?.phone || "")) missing.push("утасны дугаар");
+  const age = Number(profile?.age || 0);
+  if (!profile?.age || age < 16 || age > 99) missing.push("нас");
+  if (!profile?.gender) missing.push("хүйс");
+  return missing;
+}
+
 function getJobSalaryMin(job: any): number {
   return Number(job.salaryMin) || parseSalaryValue(job.salary);
 }
@@ -227,6 +246,7 @@ function JobCard({
   onApply,
   onChat,
   onSaveToggle,
+  highlighted = false,
   viewMode = "list",
 }: {
   job: any;
@@ -234,15 +254,17 @@ function JobCard({
   onApply: (job: any) => void;
   onChat: (employer: any) => void;
   onSaveToggle: (jobId: number, saved: boolean) => void;
+  highlighted?: boolean;
   viewMode?: "list" | "grid";
 }) {
+  const { showAlert } = useAlert();
   const userId = (session?.user as any)?.id;
   const candidateApplication = job.applications?.find(
     (a: any) => Number(a.candidateId) === Number(userId)
   );
   const applied = !!candidateApplication;
   const isApproved = candidateApplication?.status === "APPROVED";
-  const [saved, setSaved] = useState(job.isSaved || false);
+  const saved = !!job.isSaved;
   const [relTime, setRelTime] = useState(getRelativeTime(job.createdAt || new Date()));
 
   useEffect(() => {
@@ -255,22 +277,21 @@ function JobCard({
 
   const handleSave = async () => {
     const next = !saved;
-    setSaved(next);
     onSaveToggle(job.id, next);
   };
 
   const handleCopyJobLink = async () => {
     try {
       await navigator.clipboard.writeText(buildJobShareText(job));
-      alert("Ажлын зарын холбоос AI-д илгээх мэдээлэлтэйгээ хуулагдлаа.");
+      showAlert("Ажлын зарын холбоос AI-д илгээх мэдээлэлтэйгээ хуулагдлаа.", "success");
     } catch {
-      alert("Холбоос хуулахад алдаа гарлаа.");
+      showAlert("Холбоос хуулахад алдаа гарлаа.", "error");
     }
   };
 
   const handleChatClick = () => {
     if (!isApproved) {
-      alert("Ажил олгогч зөвшөөрсөн үед л чатлах хэсэг нээгдэнэ. Та түр хүлээнэ үү.");
+      showAlert("Ажил олгогч зөвшөөрсөн үед л чатлах хэсэг нээгдэнэ. Та түр хүлээнэ үү.", "info");
       return;
     }
 
@@ -295,7 +316,7 @@ function JobCard({
 
   if (viewMode === "grid") {
     return (
-      <div className="bg-white dark:bg-[#111827] border border-gray-100 dark:border-[#1f2937] rounded-2xl p-5 hover:border-blue-200 dark:hover:border-[#3b5bdb]/40 hover:shadow-lg transition-all flex flex-col gap-3">
+      <div data-job-id={job.id} className={`bg-white dark:bg-[#111827] border rounded-2xl p-5 hover:border-blue-200 dark:hover:border-[#3b5bdb]/40 hover:shadow-lg transition-all flex flex-col gap-3 ${highlighted ? "border-blue-500 ring-2 ring-blue-500/40 shadow-lg" : "border-gray-100 dark:border-[#1f2937]"}`}>
         <div className="flex items-start justify-between">
           <CompanyAvatar name={companyName} image={companyImage} size={44} />
           <div className="flex items-center gap-1">
@@ -344,7 +365,7 @@ function JobCard({
   }
 
   return (
-    <div className="bg-white dark:bg-[#111827] border border-gray-100 dark:border-[#1f2937] rounded-2xl px-4 md:px-5 py-3 md:py-4 hover:border-blue-200 dark:hover:border-[#3b5bdb]/40 hover:shadow-md transition-all">
+    <div data-job-id={job.id} className={`bg-white dark:bg-[#111827] border rounded-2xl px-4 md:px-5 py-3 md:py-4 hover:border-blue-200 dark:hover:border-[#3b5bdb]/40 hover:shadow-md transition-all ${highlighted ? "border-blue-500 ring-2 ring-blue-500/40 shadow-lg" : "border-gray-100 dark:border-[#1f2937]"}`}>
       <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
         <CompanyAvatar name={companyName} image={companyImage} size={44} className="hidden sm:block md:w-[52px] md:h-[52px]" />
         <div className="flex-1 min-w-0">
@@ -418,23 +439,23 @@ function JobCard({
               {applied ? (
                 <button
                   onClick={handleChatClick}
-                  className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#1a2035] rounded-xl hover:bg-gray-200 dark:hover:bg-[#1e2a45] transition-all flex-1 md:flex-none md:min-w-max"
+                  className="hidden md:flex px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#1a2035] rounded-xl hover:bg-gray-200 dark:hover:bg-[#1e2a45] transition-all flex-1 md:flex-none md:min-w-max"
                 >
                   Чатлах
                 </button>
               ) : (
                 <button
                   onClick={() => onApply(job)}
-                  className="px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#1a2035] rounded-xl hover:bg-gray-200 dark:hover:bg-[#1e2a45] transition-all flex-1 md:flex-none md:min-w-max"
+                  className="hidden md:flex px-4 py-2 text-xs font-semibold text-gray-600 dark:text-gray-400 bg-gray-100 dark:bg-[#1a2035] rounded-xl hover:bg-gray-200 dark:hover:bg-[#1e2a45] transition-all flex-1 md:flex-none md:min-w-max"
                 >
                   Дэлгэрэнгүй
                 </button>
               )}
               <button
-                onClick={() => onApply(job)}
-                disabled={applied}
+                onClick={() => (applied ? handleChatClick() : onApply(job))}
+                disabled={applied && !isApproved}
                 className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all flex-1 md:flex-none md:min-w-max ${
-                  applied
+                  applied && !isApproved
                     ? "bg-gray-200 dark:bg-[#1a2035] text-gray-500 dark:text-gray-500 cursor-not-allowed opacity-60"
                     : "bg-blue-600 text-white hover:bg-blue-500"
                 }`}
@@ -497,6 +518,7 @@ function AiPanel({
   session: any;
   jobs: any[];
 }) {
+  const { showAlert } = useAlert();
   const [aiInput, setAiInput] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -535,7 +557,7 @@ function AiPanel({
       file.type.startsWith("text/");
 
     if (!allowed) {
-      alert("PDF, зураг эсвэл text файл оруулна уу.");
+      showAlert("PDF, зураг эсвэл text файл оруулна уу.", "warning");
       e.target.value = "";
       return;
     }
@@ -705,14 +727,16 @@ function AiPanel({
 // ─── Main Component ───────────────────────────────────────────────────────────
 function CandidateDashboardContent() {
   const { data: session, status } = useSession();
+  const { showAlert } = useAlert();
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [jobs, setJobs] = useState<any[]>([]);
+  const [jobs, setJobs] = useState<CandidateJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<any[]>([]);
   const [selectedContact, setSelectedContact] = useState<any>(null);
   const [chatSocket, setChatSocket] = useState<any>(null);
+  const [floatingChatEnabled, setFloatingChatEnabled] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [savedCount, setSavedCount] = useState(0);
   const [appliedCountData, setAppliedCountData] = useState(0);
@@ -723,37 +747,63 @@ function CandidateDashboardContent() {
     totalJobs: 0,
   });
 
-  const [searchQuery, setSearchQuery] = useState("");
-  const [locationQuery, setLocationQuery] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
-  const [sortBy, setSortBy] = useState("newest");
-  const [currentPage, setCurrentPage] = useState(1);
   const [aiOpen, setAiOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "saved" | "applied" | "messages" | "improvement">("all");
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<any>(null);
   const [candidateProfile, setCandidateProfile] = useState<any>(null);
-
-  const [jobTypeFilters, setJobTypeFilters] = useState<Record<string, boolean>>({
-    FULL_TIME: false, PART_TIME: false, REMOTE: false, TEMPORARY: false, INTERNSHIP: false,
-  });
-  const [experienceFilters, setExperienceFilters] = useState<Record<string, boolean>>({
-    "0-1": false, "1-3": false, "3-5": false, "5+": false,
-  });
-  const [salaryMin, setSalaryMin] = useState(500000);
-  const [salaryMax, setSalaryMax] = useState(10000000);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
+  const [recentlyViewedJobIds, setRecentlyViewedJobIds] = useState<number[]>([]);
+  const hydratedFilterUrlRef = useRef(false);
 
   const [showProfile, setShowProfile] = useState(false);
   const [showCV, setShowCV] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showUpgradePlan, setShowUpgradePlan] = useState(false);
   const [showJobDetail, setShowJobDetail] = useState(false);
   const [selectedJob, setSelectedJob] = useState<any>(null);
-  const [showCVGenerator, setShowCVGenerator] = useState(false);
-  const [showCVPreview, setShowCVPreview] = useState(false);
-  const [generatedCVHTML, setGeneratedCVHTML] = useState("");
+  const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
 
   const JOBS_PER_PAGE = 8;
+  const userId = Number((session?.user as any)?.id || 0);
+  const {
+    activeFilterCount,
+    currentPage,
+    experienceFilters,
+    filteredJobs,
+    jobTypeFilters,
+    locationQuery,
+    pageButtons,
+    paginatedJobs,
+    resetFilters,
+    salaryMax,
+    salaryMin,
+    searchQuery,
+    selectedCategory,
+    setCurrentPage,
+    setExperienceFilters,
+    setJobTypeFilters,
+    setLocationQuery,
+    setSalaryMax,
+    setSalaryMin,
+    setSearchQuery,
+    setSelectedCategory,
+    setSortBy,
+    sortBy,
+    totalPages,
+  } = useJobFilters({
+    jobs,
+    userId,
+    activeTab,
+    candidateProfile,
+    recentlyViewedJobIds,
+    jobsPerPage: JOBS_PER_PAGE,
+  });
+  const unreadChatCount = conversations.reduce(
+    (sum: number, conversation: any) => sum + Number(conversation?.unreadCount || 0),
+    0,
+  );
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
@@ -787,11 +837,35 @@ function CandidateDashboardContent() {
     }
   }, [session]);
 
-  const fetchData = useCallback(async () => {
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const saved = JSON.parse(localStorage.getItem("candidateRecentlyViewedJobs") || "[]");
+      if (Array.isArray(saved)) {
+        setRecentlyViewedJobIds(saved.map(Number).filter(Boolean).slice(0, 12));
+      }
+    } catch {
+      setRecentlyViewedJobIds([]);
+    }
+  }, []);
+
+  const fetchConversations = useCallback(async () => {
+    const userId = (session?.user as any)?.id;
+    if (!userId) return;
+    const res = await authenticatedFetch(API_URLS.chat.conversations(userId));
+    setConversations(res.data || []);
+  }, [session]);
+
+  const refreshFilterStats = useCallback(async () => {
+    const res = await authenticatedFetch(API_URLS.jobs.stats());
+    setFilterStats(res.data);
+  }, []);
+
+  const fetchData = useCallback(async (options?: { silent?: boolean }) => {
     const userId = (session?.user as any)?.id;
     if (!userId) return;
     try {
-      setLoading(true);
+      if (!options?.silent) setLoading(true);
       const results = await Promise.allSettled([
         authenticatedFetch(API_URLS.jobs.all()),
         authenticatedFetch(API_URLS.chat.conversations(userId)),
@@ -804,7 +878,7 @@ function CandidateDashboardContent() {
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (!options?.silent) setLoading(false);
     }
   }, [session]);
 
@@ -832,6 +906,96 @@ function CandidateDashboardContent() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (hydratedFilterUrlRef.current) return;
+    hydratedFilterUrlRef.current = true;
+    setSearchQuery(searchParams.get("q") || "");
+    setLocationQuery(searchParams.get("location") || "");
+    setSelectedCategory(searchParams.get("category") || "all");
+    const type = searchParams.get("type");
+    if (type) setJobTypeFilters((current) => ({ ...current, [type]: true }));
+    const exp = searchParams.get("exp");
+    if (exp) setExperienceFilters((current) => ({ ...current, [exp]: true }));
+    const salary = Number(searchParams.get("salaryMax"));
+    if (salary) setSalaryMax(salary);
+    const sort = searchParams.get("sort") as JobSortKey | null;
+    if (sort === "newest" || sort === "salary" || sort === "recommended" || sort === "recentlyViewed") {
+      setSortBy(sort);
+    }
+  }, [
+    searchParams,
+    setExperienceFilters,
+    setJobTypeFilters,
+    setLocationQuery,
+    setSalaryMax,
+    setSearchQuery,
+    setSelectedCategory,
+    setSortBy,
+  ]);
+
+  useEffect(() => {
+    if (!hydratedFilterUrlRef.current || activeTab === "messages" || activeTab === "improvement") return;
+    const params = new URLSearchParams(searchParams.toString());
+    const activeType = Object.entries(jobTypeFilters).find(([, value]) => value)?.[0] || "";
+    const activeExp = Object.entries(experienceFilters).find(([, value]) => value)?.[0] || "";
+    const setOrDelete = (key: string, value?: string | number) => {
+      if (value && value !== "all") params.set(key, String(value));
+      else params.delete(key);
+    };
+
+    setOrDelete("tab", activeTab === "all" ? "" : activeTab);
+    setOrDelete("q", searchQuery.trim());
+    setOrDelete("location", locationQuery.trim());
+    setOrDelete("category", selectedCategory);
+    setOrDelete("type", activeType);
+    setOrDelete("exp", activeExp);
+    setOrDelete("salaryMax", salaryMax < 10000000 ? salaryMax : "");
+    setOrDelete("sort", sortBy !== "newest" ? sortBy : "");
+
+    const query = params.toString();
+    if (query !== searchParams.toString()) {
+      router.replace(`/dashboard/candidate${query ? `?${query}` : ""}`, { scroll: false });
+    }
+  }, [
+    activeTab,
+    experienceFilters,
+    jobTypeFilters,
+    locationQuery,
+    router,
+    salaryMax,
+    searchParams,
+    searchQuery,
+    selectedCategory,
+    sortBy,
+  ]);
+
+  useEffect(() => {
+    const handleAiJobFocus = (event: Event) => {
+      const jobId = Number((event as CustomEvent<{ jobId?: number }>).detail?.jobId);
+      if (!jobId) return;
+      setActiveTab("all");
+      resetFilters();
+      const index = jobs.findIndex((job: any) => Number(job.id) === jobId);
+      setCurrentPage(index >= 0 ? Math.floor(index / JOBS_PER_PAGE) + 1 : 1);
+      setHighlightedJobId(jobId);
+      window.setTimeout(() => {
+        document.querySelector(`[data-job-id="${jobId}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 160);
+      window.setTimeout(() => setHighlightedJobId((current) => current === jobId ? null : current), 5000);
+    };
+
+    window.addEventListener("jobhub:ai-focus-candidate-job", handleAiJobFocus);
+    return () => window.removeEventListener("jobhub:ai-focus-candidate-job", handleAiJobFocus);
+  }, [jobs, resetFilters, setCurrentPage]);
+
+  useEffect(() => {
+    if (activeTab !== "messages") return;
+    const timeout = setTimeout(() => {
+      fetchConversations().catch(() => {});
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [activeTab, fetchConversations]);
+
+  useEffect(() => {
     const userId = Number((session?.user as any)?.id);
     if (!userId) return;
 
@@ -850,36 +1014,31 @@ function CandidateDashboardContent() {
     const socket = io(API_URLS.sockets.chat());
     setChatSocket(socket);
     socket.on("connect", () => { socket.emit("join-room", userId); });
-    socket.on("new-message", () => { fetchData(); });
+    socket.on("new-message", () => { fetchConversations().catch(() => {}); });
 
     return () => {
       setChatSocket(null);
       socket.off("new-message");
       socket.disconnect();
     };
-  }, [session, fetchData]);
+  }, [session, fetchConversations]);
 
   useEffect(() => {
     if (!session?.user) return;
-    const iv = setInterval(async () => {
-      try {
-        const res = await authenticatedFetch(API_URLS.jobs.stats());
-        setFilterStats(res.data);
-      } catch {}
-    }, 5000);
+    const iv = setInterval(() => {
+      refreshFilterStats().catch(() => {});
+    }, 60000);
     return () => clearInterval(iv);
-  }, [session]);
+  }, [session, refreshFilterStats]);
 
   useEffect(() => {
     const socket = io(API_URLS.sockets.auth());
     socket.on("new-job-posted", (data: any) => {
       setJobs((prev) => [...hydrateJobImages([data.job]), ...prev]);
-      authenticatedFetch(API_URLS.jobs.stats())
-        .then((res) => setFilterStats(res.data))
-        .catch(() => {});
+      refreshFilterStats().catch(() => {});
     });
     return () => { socket.disconnect(); };
-  }, []);
+  }, [refreshFilterStats]);
 
   useEffect(() => {
     if (status === "unauthenticated") {
@@ -955,14 +1114,46 @@ function CandidateDashboardContent() {
     router.replace(`/dashboard/candidate${query ? `?${query}` : ""}`, { scroll: false });
   }, [router, searchParams]);
 
+  const requireCompleteCandidateProfile = () => {
+    const userId = (session?.user as any)?.id;
+    let profile = candidateProfile;
+
+    if (userId && typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(`userProfile_${userId}`);
+        if (saved) profile = JSON.parse(saved);
+      } catch {}
+    }
+
+    const missing = getIncompleteProfileFields(profile);
+    if (missing.length === 0) return true;
+
+    showAlert(`Ажилд хүсэлт илгээхийн өмнө профайлаа бүрэн бөглөнө үү: ${missing.join(", ")}.`, "warning");
+    setCandidateProfile(profile || null);
+    setShowProfile(true);
+    return false;
+  };
+
   const handleApply = (job: any) => {
-    if (!session?.user) return alert("Нэвтрэх");
+    if (!session?.user) return showAlert("Нэвтэрч орно уу.", "warning");
+    if (!requireCompleteCandidateProfile()) return;
+    const viewedJobId = Number(job.id);
+    if (viewedJobId) {
+      setRecentlyViewedJobIds((current) => {
+        const next = [viewedJobId, ...current.filter((id) => id !== viewedJobId)].slice(0, 12);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("candidateRecentlyViewedJobs", JSON.stringify(next));
+        }
+        return next;
+      });
+    }
     setSelectedJob(job);
     setShowJobDetail(true);
   };
 
   const handleApplyWithCV = async (jobId: number, cvData?: string, cvName?: string) => {
-    if (!session?.user) return alert("Нэвтрэх");
+    if (!session?.user) return showAlert("Нэвтэрч орно уу.", "warning");
+    if (!requireCompleteCandidateProfile()) return;
     try {
       const userId = (session.user as any).id;
 
@@ -978,7 +1169,7 @@ function CandidateDashboardContent() {
       const submittedCVName = cvName || userProfile?.cvFileName || "candidate-cv";
 
       if (!submittedCV) {
-        alert("CV оруулаагүй байна. AI-аар үүсгүүлэх үү?");
+        showAlert("CV оруулаагүй байна. AI-аар үүсгээд дахин оролдоно уу.", "warning");
         setShowCV(true);
         return;
       }
@@ -998,77 +1189,32 @@ function CandidateDashboardContent() {
         cvText: submittedCV,
         cvFileName: submittedCVName,
       });
-      alert("Хүсэлт илгээгдлээ!");
+      showAlert("Хүсэлт илгээгдлээ!", "success");
+      setJobs((prev) =>
+        prev.map((job: any) =>
+          Number(job.id) === Number(jobId)
+            ? {
+                ...job,
+                applications: [
+                  ...(job.applications || []).filter(
+                    (app: any) => Number(app.candidateId) !== Number(userId),
+                  ),
+                  { candidateId: userId, status: "PENDING" },
+                ],
+              }
+            : job,
+        ),
+      );
       closeJobDetail();
-      fetchData();
+      fetchData({ silent: true });
     } catch (err: any) {
       if (err.response?.status === 400) {
-        alert("Та аль хэдийн өргөдөл илгээсэн байна");
+        showAlert("Та аль хэдийн өргөдөл илгээсэн байна.", "info");
       } else {
-        alert("Алдаа гарлаа");
+        showAlert("Алдаа гарлаа.", "error");
       }
     }
   };
-
-  const filteredJobs = useMemo(() => {
-    let list = [...jobs];
-    const userId = Number((session?.user as any)?.id);
-
-    if (activeTab === "saved") list = list.filter((job: any) => job.isSaved);
-    if (activeTab === "applied" && userId) {
-      list = list.filter((job: any) =>
-        job.applications?.some((app: any) => Number(app.candidateId) === userId)
-      );
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (j) =>
-          (j.title || "").toLowerCase().includes(q) ||
-          (j.company || "").toLowerCase().includes(q) ||
-          (j.employer?.fullName || "").toLowerCase().includes(q)
-      );
-    }
-
-    if (locationQuery.trim()) {
-      const lq = locationQuery.toLowerCase();
-      list = list.filter((j) => (j.location || "").toLowerCase().includes(lq));
-    }
-
-    const activeTypes = Object.entries(jobTypeFilters).filter(([, v]) => v).map(([k]) => k);
-    if (activeTypes.length > 0) {
-      list = list.filter((j) => activeTypes.includes(j.jobType || j.type));
-    }
-
-    const activeExp = Object.entries(experienceFilters).filter(([, v]) => v).map(([k]) => k);
-    if (activeExp.length > 0) {
-      list = list.filter((j) => {
-        const exp = j.experience || "";
-        return activeExp.some((e) => exp.includes(e));
-      });
-    }
-
-    if (salaryMax < 10000000) {
-      list = list.filter((j) => {
-        const parsedSalary = parseSalaryValue(j.salary);
-        const min = Number(j.salaryMin) || parsedSalary || 0;
-        const max = Number(j.salaryMax) || parsedSalary || Infinity;
-        return max >= salaryMin && min <= salaryMax;
-      });
-    }
-
-    if (sortBy === "newest") list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    else if (sortBy === "salary") list.sort((a, b) => getJobSalaryMax(b) - getJobSalaryMax(a));
-
-    return list;
-  }, [jobs, session, activeTab, searchQuery, locationQuery, jobTypeFilters, experienceFilters, salaryMin, salaryMax, sortBy]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
-  const paginatedJobs = filteredJobs.slice(
-    (currentPage - 1) * JOBS_PER_PAGE,
-    currentPage * JOBS_PER_PAGE
-  );
 
   const localProfileName = [candidateProfile?.lastName, candidateProfile?.firstName]
     .filter(Boolean).join(" ").trim();
@@ -1078,20 +1224,6 @@ function CandidateDashboardContent() {
     (session?.user as any)?.email?.split("@")[0] ||
     "Нэвтрэгч";
   const userInitial = userName[0]?.toUpperCase() || "Б";
-
-  const pageButtons = (): (number | "...")[] => {
-    const btns: (number | "...")[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) btns.push(i);
-    } else {
-      btns.push(1, 2, 3);
-      if (currentPage > 4) btns.push("...");
-      if (currentPage > 3 && currentPage < totalPages - 2) btns.push(currentPage);
-      if (currentPage < totalPages - 3) btns.push("...");
-      btns.push(totalPages);
-    }
-    return btns;
-  };
 
   return (
     <DashboardLayout role="candidate">
@@ -1128,7 +1260,14 @@ function CandidateDashboardContent() {
                   : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               }`}
             >
-              {item.label}
+              <span className="inline-flex items-center gap-2">
+                {item.label}
+                {item.key === "messages" && unreadChatCount > 0 && (
+                  <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 py-0.5 text-[11px] font-black text-white">
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </nav>
@@ -1183,10 +1322,10 @@ function CandidateDashboardContent() {
                   <Settings size={14} className="text-blue-500" /> Тохиргоо
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); setShowCVGenerator(true); setProfileOpen(false); }}
+                  onClick={(e) => { e.stopPropagation(); setShowUpgradePlan(true); setProfileOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-gray-700 dark:text-white hover:bg-gray-100 dark:hover:bg-[#1a2035] rounded-xl flex items-center gap-2.5"
                 >
-                  <Sparkles size={14} className="text-purple-500" /> CV үүсгэх (AI)
+                  <TrendingUp size={14} className="text-emerald-500" /> Түвшин ахиулах
                 </button>
                 <div className="border-t border-gray-200 dark:border-[#1e2535] my-1" />
                 <button
@@ -1202,14 +1341,13 @@ function CandidateDashboardContent() {
       </header>
 
       {/* ── BODY ───────────────────────────────────────────────────────────────── */}
-      <div className="pt-14 flex h-screen overflow-hidden pb-20 md:pb-0 bg-gray-50 dark:bg-[#060c18]">
+      <div className="flex h-[100dvh] overflow-hidden bg-gray-50 pt-14 pb-20 dark:bg-[#060c18] md:pb-0">
 
         {activeTab === "improvement" ? (
-          <main className="flex-1 overflow-y-auto">
-            <SelfImprovementModal
-              onClose={() => setActiveTab("all")}
-              userId={(session?.user as any)?.id || 0}
-            />
+          <main className="flex min-w-0 flex-1 items-start justify-center overflow-hidden p-2 sm:p-4 md:p-6">
+            <div className="h-full w-full max-w-[1600px] overflow-hidden rounded-2xl border border-white/10 bg-[#060c18] shadow-2xl shadow-black/30 md:h-[90vh] md:w-[90vw]">
+              <TodoApp userId={(session?.user as any)?.id || 0} />
+            </div>
           </main>
         ) : activeTab === "messages" ? (
           <main ref={chatContainerRef} className="flex-1 overflow-hidden p-0 md:p-6">
@@ -1219,6 +1357,7 @@ function CandidateDashboardContent() {
               onSelectContact={setSelectedContact}
               senderId={(session?.user as any)?.id}
               socket={chatSocket}
+              onOpenProfile={() => setFloatingChatEnabled(true)}
             />
           </main>
         ) : (
@@ -1237,7 +1376,7 @@ function CandidateDashboardContent() {
                 <MapPin size={14} className="text-gray-400" />
                 <select
                   value={locationQuery}
-                  onChange={(e) => setLocationQuery(e.target.value)}
+                  onChange={(e) => { setLocationQuery(e.target.value); setCurrentPage(1); }}
                   className="flex-1 bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none cursor-pointer"
                 >
                   <option value="">Бүх байршил</option>
@@ -1252,8 +1391,16 @@ function CandidateDashboardContent() {
               >
                 <Search size={15} /> Хайх
               </button>
-              <button className="md:hidden flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-[#1e2535] text-gray-600 dark:text-gray-400 text-sm rounded-xl hover:border-blue-400 transition-all shrink-0">
+              <button
+                onClick={() => setMobileFiltersOpen(true)}
+                className="md:hidden relative flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-[#1e2535] text-gray-600 dark:text-gray-400 text-sm rounded-xl hover:border-blue-400 transition-all shrink-0"
+              >
                 <SlidersHorizontal size={14} />
+                {activeFilterCount > 0 && (
+                  <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-blue-600 px-1 text-[10px] font-black text-white">
+                    {activeFilterCount}
+                  </span>
+                )}
               </button>
             </div>
 
@@ -1263,10 +1410,8 @@ function CandidateDashboardContent() {
                   <p className="text-sm font-bold text-gray-900 dark:text-white">Шүүлтүүр</p>
                   <button
                     onClick={() => {
-                      setJobTypeFilters({ FULL_TIME: false, PART_TIME: false, REMOTE: false, TEMPORARY: false, INTERNSHIP: false });
-                      setExperienceFilters({ "0-1": false, "1-3": false, "3-5": false, "5+": false });
-                      setSalaryMin(500000); setSalaryMax(10000000);
-                      setCurrentPage(1);
+                      resetFilters();
+                      setMobileFiltersOpen(false);
                     }}
                     className="px-2.5 py-1 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 text-xs font-bold rounded-lg hover:bg-red-200 dark:hover:bg-red-500/30 transition-all"
                   >
@@ -1279,7 +1424,7 @@ function CandidateDashboardContent() {
                   <div className="relative">
                     <select
                       value={selectedCategory}
-                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
                       className="w-full bg-gray-50 dark:bg-[#0d1117] border border-gray-200 dark:border-[#1e2535] rounded-xl px-3 py-2.5 text-sm text-gray-700 dark:text-gray-400 outline-none appearance-none cursor-pointer"
                     >
                       <option value="all">Бүх ангилал</option>
@@ -1314,7 +1459,7 @@ function CandidateDashboardContent() {
 
                 <div className="mb-6">
                   <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3">Цалингийн түвшин</p>
-                  <div className="text-sm text-gray-800 dark:text-white font-semibold mb-3">
+                  <div className="hidden">
                     500К₮ – {salaryMax >= 10000000 ? "10М₮+" : `${Math.round(salaryMax / 1000000)}М₮`}
                   </div>
                   <input
@@ -1352,7 +1497,7 @@ function CandidateDashboardContent() {
                     <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
                     <input
                       value={locationQuery}
-                      onChange={(e) => setLocationQuery(e.target.value)}
+                      onChange={(e) => { setLocationQuery(e.target.value); setCurrentPage(1); }}
                       placeholder="Байршлаар хайх..."
                       className="w-full bg-gray-50 dark:bg-[#0d1117] border border-gray-200 dark:border-[#1e2535] rounded-xl pl-8 pr-3 py-2.5 text-sm text-gray-800 dark:text-white placeholder-gray-400 outline-none"
                     />
@@ -1367,7 +1512,7 @@ function CandidateDashboardContent() {
                           label={loc}
                           count={cnt as number}
                           checked={locationQuery === loc}
-                          onChange={(v) => setLocationQuery(v ? loc : "")}
+                          onChange={(v) => { setLocationQuery(v ? loc : ""); setCurrentPage(1); }}
                         />
                       ))}
                   </div>
@@ -1375,9 +1520,21 @@ function CandidateDashboardContent() {
               </aside>
 
               <main className="flex-1 flex flex-col h-full overflow-hidden bg-gray-50 dark:bg-[#060c18]">
-                {(Object.values(jobTypeFilters).some(v => v) || Object.values(experienceFilters).some(v => v) || salaryMax < 10000000 || locationQuery) && (
+                {activeFilterCount > 0 && (
                   <div className="shrink-0 px-6 py-3 border-b border-gray-100 dark:border-[#1a2235] bg-blue-50 dark:bg-blue-500/10 flex items-center gap-3 flex-wrap">
                     <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 whitespace-nowrap">Идэвхтэй шүүлтүүр:</span>
+                    {selectedCategory !== "all" && (
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white dark:bg-[#1a2035] border border-gray-200 dark:border-[#2a3550] rounded-full text-xs font-medium text-gray-700 dark:text-gray-300">
+                        {selectedCategory}
+                        <button onClick={() => setSelectedCategory("all")} className="ml-1 text-gray-400 hover:text-red-500"><X size={12} /></button>
+                      </div>
+                    )}
+                    {searchQuery.trim() && (
+                      <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white dark:bg-[#1a2035] border border-gray-200 dark:border-[#2a3550] rounded-full text-xs font-medium text-gray-700 dark:text-gray-300">
+                        {searchQuery.trim()}
+                        <button onClick={() => setSearchQuery("")} className="ml-1 text-gray-400 hover:text-red-500"><X size={12} /></button>
+                      </div>
+                    )}
                     {Object.entries(jobTypeFilters).map(([key, checked]) =>
                       checked ? (
                         <div key={key} className="inline-flex items-center gap-2 px-2.5 py-1 bg-white dark:bg-[#1a2035] border border-gray-200 dark:border-[#2a3550] rounded-full text-xs font-medium text-gray-700 dark:text-gray-300">
@@ -1406,6 +1563,9 @@ function CandidateDashboardContent() {
                         <button onClick={() => setSalaryMax(10000000)} className="ml-1 text-gray-400 hover:text-red-500"><X size={12} /></button>
                       </div>
                     )}
+                    <button onClick={resetFilters} className="text-xs font-semibold text-blue-600 hover:text-blue-500">
+                      Reset all
+                    </button>
                   </div>
                 )}
 
@@ -1442,11 +1602,13 @@ function CandidateDashboardContent() {
                       <span>Эрэмбэлэх:</span>
                       <select
                         value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
+                        onChange={(e) => setSortBy(e.target.value as JobSortKey)}
                         className="bg-transparent text-sm text-gray-700 dark:text-gray-300 outline-none cursor-pointer"
                       >
                         <option value="newest">Шинэ эхэлсэн</option>
                         <option value="salary">Цалин өндөр</option>
+                        <option value="recommended">AI match</option>
+                        <option value="recentlyViewed">Recent</option>
                       </select>
                       <ChevronDown size={13} />
                     </div>
@@ -1475,22 +1637,33 @@ function CandidateDashboardContent() {
                   ) : paginatedJobs.length === 0 ? (
                     <div className="col-span-1 md:col-span-2 text-center py-20">
                       <p className="text-gray-400 text-sm">Ажлын байр олдсонгүй</p>
-                      <button onClick={() => { setSearchQuery(""); setCurrentPage(1); }} className="mt-3 text-blue-500 text-sm underline">
+                      <button onClick={resetFilters} className="mt-3 text-blue-500 text-sm underline">
                         Шүүлтүүр арилгах
                       </button>
                     </div>
                   ) : (
-                    paginatedJobs.map((job: any) => (
-                      <JobCard
-                        key={job.id}
-                        job={job}
-                        session={session}
-                        onApply={handleApply}
-                        onChat={openChat}
-                        onSaveToggle={handleSaveToggle}
-                        viewMode={viewMode}
-                      />
-                    ))
+                    <>
+                      {paginatedJobs.map((job: any) => (
+                        <JobCard
+                          key={job.id}
+                          job={job}
+                          session={session}
+                          onApply={handleApply}
+                          onChat={openChat}
+                          onSaveToggle={handleSaveToggle}
+                          highlighted={highlightedJobId === Number(job.id)}
+                          viewMode={viewMode}
+                        />
+                      ))}
+                      {currentPage < totalPages && (
+                        <button
+                          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                          className="md:hidden rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-bold text-blue-600 shadow-sm dark:border-[#1e2535] dark:bg-[#0b1120]"
+                        >
+                          Load more
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -1534,13 +1707,69 @@ function CandidateDashboardContent() {
       </div>
 
       {/* ── AI PANEL ──────────────────────────────────────────────────────────── */}
+      {mobileFiltersOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/45 md:hidden" onClick={() => setMobileFiltersOpen(false)}>
+          <section
+            className="absolute bottom-0 left-0 right-0 max-h-[82dvh] overflow-y-auto rounded-t-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-[#1a2235] dark:bg-[#0b1120]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm font-bold text-gray-900 dark:text-white">Filters</p>
+              <button onClick={() => setMobileFiltersOpen(false)} className="grid h-9 w-9 place-items-center rounded-xl bg-gray-100 text-gray-500 dark:bg-[#1a2035]">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="space-y-5">
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-gray-500">Category</span>
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => { setSelectedCategory(e.target.value); setCurrentPage(1); }}
+                  className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 text-sm text-gray-800 outline-none dark:border-[#1e2535] dark:bg-[#0d1117] dark:text-white"
+                >
+                  <option value="all">All</option>
+                  <option value="IT">IT / Technology</option>
+                  <option value="Marketing">Marketing</option>
+                  <option value="Design">Design</option>
+                </select>
+              </label>
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500">Job type</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[["FULL_TIME", "Full time"], ["PART_TIME", "Part time"], ["REMOTE", "Remote"], ["TEMPORARY", "Temp"], ["INTERNSHIP", "Intern"]].map(([key, label]) => (
+                    <SidebarCheckbox key={key} label={label} count={filterStats.jobType?.[key] || 0} checked={jobTypeFilters[key]} onChange={(v) => { setJobTypeFilters((f) => ({ ...f, [key]: v })); setCurrentPage(1); }} />
+                  ))}
+                </div>
+              </div>
+              <label className="block">
+                <span className="mb-2 block text-[10px] font-bold uppercase tracking-wider text-gray-500">Salary</span>
+                <input type="range" min={500000} max={10000000} step={100000} value={salaryMax} onChange={(e) => { setSalaryMin(500000); setSalaryMax(Number(e.target.value)); setCurrentPage(1); }} className="w-full accent-blue-600" />
+                <span className="text-xs font-semibold text-gray-500">500K - {salaryMax >= 10000000 ? "10M+" : `${Math.round(salaryMax / 1000000)}M`}</span>
+              </label>
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-wider text-gray-500">Experience</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[["0-1", "0-1"], ["1-3", "1-3"], ["3-5", "3-5"], ["5+", "5+"]].map(([key, label]) => (
+                    <SidebarCheckbox key={key} label={label} count={filterStats.experience?.[key] || 0} checked={experienceFilters[key]} onChange={(v) => { setExperienceFilters((f) => ({ ...f, [key]: v })); setCurrentPage(1); }} />
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button onClick={resetFilters} className="flex-1 rounded-xl border border-gray-200 px-4 py-3 text-sm font-bold text-gray-600 dark:border-[#1e2535] dark:text-gray-300">Reset</button>
+                <button onClick={() => setMobileFiltersOpen(false)} className="flex-1 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white">Apply</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       <AiAssistantPanel
         open={aiOpen}
         onClose={() => setAiOpen(false)}
         userId={(session?.user as any)?.id}
         role="candidate"
       />
-      <FloatingChat />
+      <FloatingChat enabled={floatingChatEnabled} />
 
       {/* ── MODALS ────────────────────────────────────────────────────────────── */}
       {showProfile && (
@@ -1563,6 +1792,13 @@ function CandidateDashboardContent() {
           role="candidate"
         />
       )}
+      {showUpgradePlan && (
+        <UpgradePlanModal
+          onClose={() => setShowUpgradePlan(false)}
+          userId={(session?.user as any)?.id || 0}
+          role="candidate"
+        />
+      )}
       {showJobDetail && selectedJob && (
         <JobDetailModal
           job={selectedJob}
@@ -1571,32 +1807,6 @@ function CandidateDashboardContent() {
           userId={(session?.user as any)?.id || 0}
         />
       )}
-      {showCVGenerator && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center overflow-y-auto p-4">
-          <div className="bg-white rounded-lg shadow-2xl w-full max-w-2xl my-8 relative">
-            <button onClick={() => setShowCVGenerator(false)} className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 z-10">
-              <X size={24} />
-            </button>
-            <div className="p-6">
-              <CVForm
-                onCVGenerated={(htmlContent: string) => {
-                  setGeneratedCVHTML(htmlContent);
-                  setShowCVGenerator(false);
-                  setShowCVPreview(true);
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
-      {showCVPreview && generatedCVHTML && (
-        <CVPreview
-          htmlContent={generatedCVHTML}
-          onClose={() => { setShowCVPreview(false); setGeneratedCVHTML(""); }}
-        />
-      )}
-
-
       {/* ── MOBILE BOTTOM NAV ───────────────────────────────────────────────── */}
       <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-white dark:bg-[#0b1120] border-t border-gray-200 dark:border-[#1a2235]">
         <div className="grid grid-cols-5">
@@ -1605,7 +1815,7 @@ function CandidateDashboardContent() {
             { key: "saved", label: "Хадгалсан", Icon: Bookmark },
             { key: "applied", label: "CV", Icon: Briefcase },
             { key: "messages", label: "Чат", Icon: Send },
-            { key: "improvement", label: "Профайл", Icon: Users },
+            { key: "improvement", label: "TODO", Icon: Sparkles },
           ].map(({ key, label, Icon }) => (
             <button
               key={key}
@@ -1621,7 +1831,14 @@ function CandidateDashboardContent() {
               }`}
             >
               <Icon size={18} />
-              <span className="leading-none">{label}</span>
+              <span className="inline-flex items-center gap-1 leading-none">
+                {label}
+                {key === "messages" && unreadChatCount > 0 && (
+                  <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-black text-white">
+                    {unreadChatCount > 9 ? "9+" : unreadChatCount}
+                  </span>
+                )}
+              </span>
             </button>
           ))}
         </div>

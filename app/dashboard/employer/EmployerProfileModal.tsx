@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { X, Mail, Phone, Globe, MapPin, Building2, FileText, ImagePlus } from "lucide-react";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { compressImageDataUrl, compressImageFile, safeSetLocalStorage } from "@/lib/imageStorage";
+import { useAlert } from "@/components/AlertProvider";
 
 export default function EmployerProfileModal({
   userId,
@@ -24,6 +25,7 @@ export default function EmployerProfileModal({
   });
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  const { showAlert } = useAlert();
 
   const loadProfileData = useCallback(async () => {
     try {
@@ -77,7 +79,7 @@ export default function EmployerProfileModal({
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      alert("Зөвхөн зураг файл сонгоно уу.");
+      showAlert("Зөвхөн зураг файл сонгоно уу.", "warning");
       e.target.value = "";
       return;
     }
@@ -87,7 +89,7 @@ export default function EmployerProfileModal({
       setFormData((prev) => ({ ...prev, logo }));
       setSaved(false);
     } catch {
-      alert("Зураг боловсруулахад алдаа гарлаа.");
+      showAlert("Зураг боловсруулахад алдаа гарлаа.", "error");
       e.target.value = "";
     }
   };
@@ -112,7 +114,7 @@ export default function EmployerProfileModal({
       // Save full profile to localStorage (all 7 fields)
       const savedLocal = safeSetLocalStorage(localStorageKey, JSON.stringify(nextFormData));
       if (!savedLocal) {
-        alert("Компанийн зураг хэт том байна. Өөр зураг сонгоно уу.");
+        showAlert("Компанийн зураг хэт том байна. Өөр зураг сонгоно уу.", "warning");
         setLoading(false);
         return;
       }
@@ -138,7 +140,7 @@ export default function EmployerProfileModal({
       onSaved?.();
     } catch (error) {
       console.error("Profile save error:", error);
-      alert("Профайл хадгалах алдаа");
+      showAlert("Профайл хадгалах алдаа.", "error");
     } finally {
       setLoading(false);
     }

@@ -1,60 +1,14 @@
 "use client";
 
 import React from "react";
-import { Briefcase, Users, FileText, Eye, TrendingUp } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts";
 
-function StatCard({
-  label,
-  value,
-  sub,
-  subColor,
-  color,
-  bg,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  sub: string;
-  subColor: string;
-  color: string;
-  bg: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-5 flex items-center gap-4">
-      <div
-        className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-        style={{ background: `${bg}15`, color: bg }}
-      >
-        {icon}
-      </div>
-      <div className="min-w-0">
-        <p className="text-[9px] font-black uppercase tracking-widest text-white/30 truncate">
-          {label}
-        </p>
-        <h4
-          className="text-[26px] font-black leading-none mt-1"
-          style={{ color }}
-        >
-          {value}
-        </h4>
-        <p className="text-[10px] font-semibold mt-1" style={{ color: subColor }}>
-          {sub}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 export default function HomeView({
-  jobs,
-  applications,
   chartData,
-  credits,
 }: any) {
   return (
     <div className="space-y-6">
@@ -105,18 +59,6 @@ export default function HomeView({
         )}
       </div>
 
-      {/* Credits Info */}
-      {credits !== undefined && (
-        <div className="bg-[#4F67FF]/10 border border-[#4F67FF]/30 rounded-2xl p-4">
-          <p className="text-[12px] font-semibold text-white mb-1">
-            💳 Үлдэгдэл кредит
-          </p>
-          <p className="text-[18px] font-black text-[#4F67FF]">{credits}</p>
-          <p className="text-[9px] text-white/40 mt-1">
-            Нийт {credits} кредит боломжтой
-          </p>
-        </div>
-      )}
     </div>
   );
 }

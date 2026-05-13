@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ChevronLeft,
   Image as ImageIcon,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import { useAlert } from "@/components/AlertProvider";
 
 type ChatMessage = {
   id: number;
@@ -31,16 +33,47 @@ type ChatMessage = {
   // Attachments
   imageUrl?: string | null;
   imageDataUrl?: string | null;
+  videoDataUrl?: string | null;
 
   fileUrl?: string | null;
+  fileDataUrl?: string | null;
   fileName?: string | null;
   fileSizeBytes?: number | null;
+  fileMimeType?: string | null;
 
   // Optional future fields (safe to render if present)
 };
 
+const CHAT_ATTACHMENT_PREFIX = "__JOBHUB_CHAT_ATTACHMENT__:";
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
 function getMessageText(msg: ChatMessage) {
   return (msg.message ?? "").toString();
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function buildAttachmentMessage(payload: Partial<ChatMessage>) {
+  return `${CHAT_ATTACHMENT_PREFIX}${JSON.stringify({
+    text: payload.message || "",
+    imageDataUrl: payload.imageDataUrl || null,
+    videoDataUrl: payload.videoDataUrl || null,
+    fileDataUrl: payload.fileDataUrl || null,
+    fileName: payload.fileName || null,
+    fileSizeBytes: payload.fileSizeBytes || null,
+    fileMimeType: payload.fileMimeType || null,
+  })}`;
+}
+
+function isLocalTempMessageId(messageId?: number | null) {
+  return Number(messageId) > 1_000_000_000_000;
 }
 
 function formatTime(createdAt?: string) {
@@ -118,6 +151,7 @@ export default function ChatWindow({
     isOnline: Boolean(receiver?.isOnline),
     lastActiveAt: receiver?.lastActiveAt || null,
   });
+  const { showAlert } = useAlert();
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -142,6 +176,7 @@ export default function ChatWindow({
     const text = getMessageText(msg).trim();
     if (text) return text.length > 90 ? `${text.slice(0, 90)}...` : text;
     if (msg.imageUrl || msg.imageDataUrl) return "Зураг";
+    if (msg.videoDataUrl) return "Бичлэг";
     if (msg.fileName) return msg.fileName;
     return "Мессеж";
   };
@@ -236,6 +271,7 @@ export default function ChatWindow({
           .filter(
             (msg) =>
               msg.id &&
+              !isLocalTempMessageId(msg.id) &&
               Number(msg.senderId) === Number(receiver.id) &&
               Number(msg.receiverId) === senderIdNum &&
               !(msg.seen ?? msg.isRead),
@@ -280,7 +316,7 @@ export default function ChatWindow({
       scrollToBottom();
 
       // Mark as seen if receiver
-      if (msg.receiverId === senderIdNum && msg.id) {
+      if (msg.receiverId === senderIdNum && msg.id && !isLocalTempMessageId(msg.id)) {
         markAsSeen(msg.id);
       }
     };
@@ -294,6 +330,7 @@ export default function ChatWindow({
 
   // Mark message as seen
   const markAsSeen = async (messageId: number) => {
+    if (isLocalTempMessageId(messageId)) return;
     try {
       await authenticatedPost(API_URLS.chat.seen(messageId), {});
       setMessages((prev) =>
@@ -450,56 +487,81 @@ export default function ChatWindow({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      showAlert("Файл 8MB-аас их байна. Жижиг файл сонгоно уу.", "warning");
+      e.target.value = "";
+      return;
+    }
+
     const tempId = Date.now();
+    const dataUrl = await readFileAsDataUrl(file);
+    const newMsg: ChatMessage = {
+      id: tempId,
+      senderId: senderIdNum,
+      receiverId: receiver.id,
+      message: "",
+      createdAt: new Date().toISOString(),
+      imageDataUrl: file.type.startsWith("image/") ? dataUrl : null,
+      videoDataUrl: file.type.startsWith("video/") ? dataUrl : null,
+      fileDataUrl: !file.type.startsWith("image/") && !file.type.startsWith("video/") ? dataUrl : null,
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      fileMimeType: file.type || "application/octet-stream",
+      seen: false,
+      isRead: false,
+    };
 
-    // Image -> show as image bubble
-    if (file.type.startsWith("image/")) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = String(reader.result);
+    setMessages((prev) => {
+      const next = [...prev, newMsg];
+      saveCachedMessages(next);
+      return next;
+    });
+    scrollToBottom();
+    e.target.value = "";
 
-        const newMsg: ChatMessage = {
-          id: tempId,
-          senderId: senderIdNum,
-          receiverId: receiver.id,
-          message: "",
-          createdAt: new Date().toISOString(),
-          imageDataUrl: dataUrl,
-          seen: false,
-          isRead: false,
-        };
-
-        setMessages((prev) => {
-          const next = [...prev, newMsg];
-          saveCachedMessages(next);
-          return next;
-        });
-        scrollToBottom();
-      };
-      reader.readAsDataURL(file);
-    } else {
-      // Non-image -> show as file bubble (name + size)
-      const newMsg: ChatMessage = {
-        id: tempId,
+    try {
+      const res = await authenticatedPost(API_URLS.chat.send(), {
         senderId: senderIdNum,
         receiverId: receiver.id,
-        message: "",
-        createdAt: new Date().toISOString(),
-        fileName: file.name,
-        fileSizeBytes: file.size,
-        seen: false,
-        isRead: false,
+        message: buildAttachmentMessage(newMsg),
+        replyToId: replyTo?.id || null,
+        replyPreview: replyTo ? getReplyPreview(replyTo) : null,
+      });
+
+      const savedMsg: ChatMessage = {
+        ...(res.data as ChatMessage),
+        id: (res.data as any)?.id ?? tempId,
+        senderId: senderIdNum,
+        receiverId: receiver.id,
+        createdAt: (res.data as any)?.createdAt || newMsg.createdAt,
+        imageDataUrl: (res.data as any)?.imageDataUrl ?? newMsg.imageDataUrl,
+        videoDataUrl: (res.data as any)?.videoDataUrl ?? newMsg.videoDataUrl,
+        fileDataUrl: (res.data as any)?.fileDataUrl ?? newMsg.fileDataUrl,
+        fileName: (res.data as any)?.fileName ?? newMsg.fileName,
+        fileSizeBytes: (res.data as any)?.fileSizeBytes ?? newMsg.fileSizeBytes,
+        fileMimeType: (res.data as any)?.fileMimeType ?? newMsg.fileMimeType,
+        seen: (res.data as any)?.seen ?? (res.data as any)?.isRead ?? false,
+        isRead: (res.data as any)?.isRead ?? (res.data as any)?.seen ?? false,
+        replyToId: (res.data as any)?.replyToId ?? replyTo?.id ?? null,
+        replyPreview: (res.data as any)?.replyPreview ?? (replyTo ? getReplyPreview(replyTo) : null),
       };
 
+      setReplyTo(null);
       setMessages((prev) => {
-        const next = [...prev, newMsg];
+        const withoutTempAndDuplicate = prev.filter((msg) => msg.id !== tempId && msg.id !== savedMsg.id);
+        const next = [...withoutTempAndDuplicate, savedMsg];
         saveCachedMessages(next);
         return next;
       });
-      scrollToBottom();
+    } catch (error) {
+      console.error("Failed to send attachment:", error);
+      setMessages((prev) => {
+        const next = prev.filter((msg) => msg.id !== tempId);
+        saveCachedMessages(next);
+        return next;
+      });
+      showAlert("Файл илгээхэд алдаа гарлаа.", "error");
     }
-
-    e.target.value = "";
   };
 
   const renderSeenText = (msg: ChatMessage) => {
@@ -525,52 +587,84 @@ export default function ChatWindow({
     isSender: boolean;
   }) => {
     const imageSrc = msg.imageUrl || msg.imageDataUrl || null;
+    const videoSrc = msg.videoDataUrl || null;
     const fileName = msg.fileName || null;
     const fileSizeBytes = msg.fileSizeBytes ?? null;
 
     if (imageSrc) {
       return (
-        <div className="p-0">
+        <div className={`overflow-hidden ${embedded ? "w-full max-w-full" : ""}`}>
           <button
             type="button"
             onClick={() => setFullscreenImage(imageSrc)}
-            className="block"
+            className={`block overflow-hidden rounded-2xl transition-opacity hover:opacity-90 ${
+              embedded ? "w-full max-w-full" : ""
+            }`}
             aria-label="Open image"
           >
             <img
               src={imageSrc}
               alt="attachment"
-              className="max-w-[200px] max-h-[200px] object-cover rounded-[12px]"
+              className={`block rounded-2xl object-contain ${
+                embedded
+                  ? "h-auto max-h-[220px] w-auto max-w-full"
+                  : "max-h-[340px] max-w-[320px]"
+              }`}
             />
           </button>
-          <p className={`text-[9px] mt-1 ${isSender ? "text-right" : "text-left"} opacity-70`}>
+          <p className={`mt-2 px-1 text-[11px] font-medium ${isSender ? "text-right" : "text-left"} text-slate-400`}>
             {formatTime(msg.createdAt)}
           </p>
         </div>
       );
     }
 
-    // File bubble
-    if (fileName) {
+    if (videoSrc) {
       return (
-        <div className="flex flex-col gap-1" style={{ padding: "8px 12px" }}>
-          <div className="flex items-center gap-2">
-            <FileText size={14} className={isSender ? "text-white" : "text-[#4F67FF]"} />
-            <p
-              className={`text-[11px] font-black ${
-                isSender ? "text-white" : "text-white"
-              } break-words`}
-              style={{ maxWidth: 220 }}
-            >
-              {fileName}
+        <div className="p-0 rounded-xl overflow-hidden">
+          <video
+            src={videoSrc}
+            controls
+            className="max-h-[280px] max-w-[280px] rounded-xl bg-slate-950"
+          />
+          <div className="px-3 py-2">
+            <p className="text-xs font-semibold text-white/85">
+              {fileName || "Бичлэг"} • {formatBytes(fileSizeBytes)}
+            </p>
+            <p className={`text-xs mt-1 ${isSender ? "text-right" : "text-left"} opacity-70`}>
+              {formatTime(msg.createdAt)}
             </p>
           </div>
-          <div className={`text-[9px] opacity-70 ${isSender ? "text-right" : "text-left"}`}>
-            {formatBytes(fileSizeBytes)}
-          </div>
-          <div className={`text-[9px] opacity-70 ${isSender ? "text-right" : "text-left"}`}>
+        </div>
+      );
+    }
+
+    // File bubble
+    if (fileName) {
+      const downloadUrl = msg.fileUrl || msg.fileDataUrl || "#";
+      return (
+        <div className="flex flex-col gap-2 p-3">
+          <a
+            href={downloadUrl}
+            download={fileName}
+            className={`flex items-center gap-3 hover:opacity-80 transition-opacity group`}
+          >
+            <div className={`flex-shrink-0 h-10 w-10 rounded-lg flex items-center justify-center ${isSender ? "bg-blue-500/30" : "bg-slate-700/50"}`}>
+              <FileText size={18} className={isSender ? "text-white" : "text-blue-400"} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-white break-words group-hover:underline">
+                {fileName}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {formatBytes(fileSizeBytes)}
+              </p>
+            </div>
+            <Download size={16} className="text-slate-400 group-hover:text-white flex-shrink-0" />
+          </a>
+          <p className={`text-xs opacity-60 ${isSender ? "text-right" : "text-left"}`}>
             {formatTime(msg.createdAt)}
-          </div>
+          </p>
         </div>
       );
     }
@@ -589,35 +683,39 @@ export default function ChatWindow({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col h-full bg-[#111827] rounded-2xl border border-white/[0.06] overflow-hidden relative"
+      className="flex flex-col h-full bg-gradient-to-b from-slate-900 to-slate-950 rounded-2xl border border-slate-700/50 overflow-hidden relative"
     >
       {/* Header */}
-      <div className="p-4 border-b border-white/[0.05] flex items-center justify-between bg-white/[0.02]">
+      <div className="sticky top-0 z-20 p-4 border-b border-slate-700/50 bg-gradient-to-r from-slate-900/95 to-slate-800/95 flex items-center justify-between backdrop-blur-md">
         <button
           type="button"
           onClick={onBackMobile}
-          className="md:hidden w-9 h-9 flex items-center justify-center text-white/50 hover:text-white hover:bg-white/5 rounded-lg transition-all"
+          className="md:hidden h-9 w-9 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all"
           aria-label="Back to messages"
         >
-          <ChevronLeft size={16} />
+          <ChevronLeft size={20} />
         </button>
 
-        <div
-          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-all md:ml-0"
+        <button
+          type="button"
           onClick={onProfileClick}
+          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-all flex-1 md:ml-0 group rounded-lg p-2 hover:bg-white/5"
         >
-          <div className="w-8 h-8 rounded-full bg-[#4F67FF]/20 flex items-center justify-center text-[#4F67FF] font-black text-xs">
+          <div className="relative h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
             {(receiver.fullName?.[0] || receiver.email[0]).toUpperCase()}
+            {presence?.isOnline && (
+              <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-slate-800 bg-green-500 animate-pulse" />
+            )}
           </div>
           <div className="min-w-0">
-            <p className="text-xs font-black text-white uppercase truncate">
+            <p className="text-sm font-semibold text-white truncate">
               {receiver.fullName || receiver.email.split("@")[0]}
             </p>
-            <p className="text-[9px] text-white/30">{formatPresence(presence.lastActiveAt, presence.isOnline)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">{formatPresence(presence.lastActiveAt, presence.isOnline)}</p>
           </div>
-        </div>
+        </button>
 
-        <button className="w-8 h-8 flex items-center justify-center text-white/40 hover:text-white hover:bg-white/5 rounded-lg transition-all">
+        <button className="h-9 w-9 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-all">
           {/* menu icon removed intentionally - keep layout simple */}
         </button>
       </div>
@@ -632,206 +730,231 @@ export default function ChatWindow({
       />
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-24 md:pb-4 scrollbar-hide" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 md:pb-4 scrollbar-hide" ref={scrollRef}>
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="animate-spin text-[#4F67FF]" size={20} />
+          <div className="flex flex-col items-center justify-center h-full gap-3">
+            <Loader2 className="animate-spin text-blue-500" size={32} />
+            <p className="text-sm text-slate-400">Чат түүх ачаалж байна...</p>
           </div>
         ) : messages.length > 0 ? (
           messages.map((msg, idx) => {
             const isSender = msg.senderId === senderIdNum;
 
             const imageSrc = msg.imageUrl || msg.imageDataUrl || null;
+            const videoSrc = msg.videoDataUrl || null;
             const fileName = msg.fileName || null;
 
             const text = getMessageText(msg);
-            const hasAttachment = Boolean(imageSrc || fileName);
+            const hasAttachment = Boolean(imageSrc || videoSrc || fileName);
             const isActive = activeMessageId === msg.id;
 
             return (
               <div
                 key={msg.id ?? idx}
-                className={`flex ${isSender ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300`}
+                className={`flex ${isSender ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-300 group`}
               >
                 <div
-                  className={`relative w-fit max-w-[75%] md:max-w-[70%] rounded-2xl ${
-                    isSender
-                      ? "bg-[#4F67FF] text-white"
-                      : "bg-[#1a2035] text-white border border-white/5"
+                  className={`flex w-full flex-col gap-1 ${
+                    embedded
+                      ? hasAttachment
+                        ? "max-w-full"
+                        : "max-w-[92%]"
+                      : "max-w-[85%] md:max-w-[75%]"
                   }`}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
-                  }}
-                  onTouchStart={() => startLongPress(msg)}
-                  onTouchEnd={stopLongPress}
-                  onTouchMove={stopLongPress}
                 >
-                  {isActive && (
-                    <div
-                      className={`absolute -top-10 ${isSender ? "right-0" : "left-0"} z-10 flex items-center gap-1 rounded-full border border-white/10 bg-[#0d1117] p-1 shadow-2xl`}
-                    >
-                      {["👍", "❤️", "😂", "😮"].map((emoji) => (
+                  <div
+                    className={`relative w-fit rounded-2xl transition-all ${
+                      isSender
+                        ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/20 self-end"
+                        : "bg-slate-800 text-white border border-slate-700 self-start hover:bg-slate-700"
+                    } ${hasAttachment ? "!bg-transparent !border-0 !shadow-none hover:!bg-transparent" : ""} ${isActive ? "ring-2 ring-blue-400" : ""}`}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
+                    }}
+                    onTouchStart={() => startLongPress(msg)}
+                    onTouchEnd={stopLongPress}
+                    onTouchMove={stopLongPress}
+                  >
+                    {isActive && (
+                      <div
+                        className={`absolute -top-12 ${isSender ? "right-0" : "left-0"} z-10 flex items-center gap-1.5 rounded-2xl border border-slate-600 bg-slate-900 p-2 shadow-2xl backdrop-blur-sm animate-in fade-in scale-in-95 duration-200`}
+                      >
+                        {["👍", "❤️", "😂", "😮", "🔥"].map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => reactToMessage(msg, emoji)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-lg hover:bg-slate-800 transition-colors"
+                            aria-label={`React ${emoji}`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <div className="h-6 w-px bg-slate-700" />
                         <button
-                          key={emoji}
                           type="button"
-                          onClick={() => reactToMessage(msg, emoji)}
-                          className="flex h-7 w-7 items-center justify-center rounded-full text-sm hover:bg-white/10"
-                          aria-label={`React ${emoji}`}
+                          onClick={() => startReply(msg)}
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+                          aria-label="Reply"
                         >
-                          {emoji}
+                          <Reply size={16} />
                         </button>
-                      ))}
+                      </div>
+                    )}
+                    {hasAttachment ? (
+                      <AttachmentBubble msg={msg} isSender={isSender} />
+                    ) : (
                       <button
                         type="button"
-                        onClick={() => startReply(msg)}
-                        className="flex h-7 w-7 items-center justify-center rounded-full text-white/70 hover:bg-white/10 hover:text-white"
-                        aria-label="Reply"
+                        onClick={() => {
+                          setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
+                        }}
+                        className="relative text-left text-sm leading-relaxed break-words w-fit"
+                        style={{ padding: "10px 14px" }}
+                        aria-label="Message actions"
                       >
-                        <Reply size={13} />
-                      </button>
-                    </div>
-                  )}
-                  {hasAttachment ? (
-                    <AttachmentBubble msg={msg} isSender={isSender} />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
-                      }}
-                      className="relative text-left text-[11px] font-medium leading-relaxed break-words w-fit"
-                      style={{ padding: "8px 12px" }}
-                      aria-label="Message actions"
-                    >
-                      {msg.replyPreview && (
-                        <div className={`mb-1 rounded-lg border-l-2 px-2 py-1 text-[10px] opacity-80 ${isSender ? "border-white/60 bg-white/10" : "border-[#4F67FF] bg-black/10"}`}>
-                          {msg.replyPreview}
+                        {msg.replyPreview && (
+                          <div className={`mb-2 rounded-lg border-l-3 px-3 py-2 text-xs opacity-90 font-medium ${isSender ? "border-blue-400 bg-blue-900/30" : "border-blue-500 bg-slate-900/50"}`}>
+                            {msg.replyPreview}
+                          </div>
+                        )}
+                        <div className="whitespace-pre-wrap">{text || ""}</div>
+
+                        {msg.reaction && (
+                          <span className={`absolute -bottom-4 ${isSender ? "left-2" : "right-2"} rounded-full border border-slate-600 bg-slate-900 px-2 py-1 text-base shadow-lg`}>
+                            {msg.reaction}
+                          </span>
+                        )}
+
+                        <div className={`mt-2 text-xs opacity-60 flex items-center gap-1 ${isSender ? "text-right" : ""}`}>
+                          {formatTime(msg.createdAt)}
+                          {isSender && (
+                            <span className="ml-1 opacity-70">
+                              {msg.seen || msg.isRead ? "✓✓" : "✓"}
+                            </span>
+                          )}
                         </div>
-                      )}
-                      <div>{text || ""}</div>
-
-                      {msg.reaction && (
-                        <span className={`absolute -bottom-3 ${isSender ? "left-2" : "right-2"} rounded-full border border-white/10 bg-[#0d1117] px-1.5 py-0.5 text-[11px] shadow-lg`}>
-                          {msg.reaction}
-                        </span>
-                      )}
-
-                      <div className="mt-1 text-[9px] opacity-70">{formatTime(msg.createdAt)}</div>
-                      {isSender && renderSeenText(msg)}
-                    </button>
-                  )}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
           })
         ) : (
-          <div className="flex items-center justify-center h-full text-white/30 text-[11px]">
-            No messages yet. Start the conversation!
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center">
+              <Send size={32} className="text-slate-500" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-300">Одоогоор сэтгэгдэл байхгүй</p>
+              <p className="text-xs text-slate-500 mt-1">Яриалагчаас эхэлье!</p>
+            </div>
           </div>
         )}
       </div>
 
       {/* Fullscreen image overlay */}
-      {fullscreenImage && (
+      {fullscreenImage && typeof document !== "undefined" && createPortal(
         <div
-          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[220] flex items-center justify-center bg-black/95 p-4 backdrop-blur-xl"
           role="dialog"
           aria-modal="true"
           onClick={(e) => {
             if (e.target === e.currentTarget) setFullscreenImage(null);
           }}
         >
-          <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+          <div className="absolute right-4 top-4 z-10 flex items-center gap-2">
+            <a
+              href={fullscreenImage}
+              download
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-4 text-xs font-semibold text-white shadow-lg shadow-blue-500/30 hover:from-blue-700 hover:to-blue-800 transition-all"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Download size={16} />
+              Татах
+            </a>
+            <button
+              type="button"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-600/50 bg-slate-800/50 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors backdrop-blur-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                setFullscreenImage(null);
+              }}
+              aria-label="Close image preview"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex h-full w-full items-center justify-center">
             <img
               src={fullscreenImage}
               alt="fullscreen"
-              className="max-w-full max-h-[70vh] object-contain rounded-2xl border border-white/10"
+              className="max-h-[88vh] max-w-[92vw] object-contain rounded-2xl border border-slate-600/50 shadow-2xl"
             />
-
-            <div className="mt-auto w-full flex gap-3">
-              <a
-                href={fullscreenImage}
-                download
-                className="flex-1 bg-[#4F67FF] text-white rounded-xl px-3 py-3 text-[12px] font-black text-center inline-flex items-center justify-center gap-2"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <Download size={14} />
-                Татах
-              </a>
-
-              <button
-                type="button"
-                className="flex-1 bg-white/10 text-white rounded-xl px-3 py-3 text-[12px] font-black text-center inline-flex items-center justify-center"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setFullscreenImage(null);
-                }}
-              >
-                Хаах
-              </button>
-            </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
       {/* Input (FIX 3: fixed bar on mobile) */}
       <form
         onSubmit={handleSend}
         className={
           embedded
-            ? "static bg-transparent p-3 py-3 border-t border-white/[0.05]"
-            : "fixed bottom-[56px] left-0 right-0 z-[60] bg-[#0f1117] border-t border-white/[0.05] px-2 py-2 min-h-[56px] md:static md:min-h-0 md:bg-transparent md:p-3 md:py-3 md:border-t-0"
+            ? "static bg-slate-800/50 p-4 py-3 border-t border-slate-700/50"
+            : "fixed bottom-[56px] left-0 right-0 z-40 bg-slate-800/80 border-t border-slate-700/50 px-3 py-2 min-h-[60px] md:static md:min-h-0 md:bg-slate-800/50 md:p-4 md:py-3 md:border-t-0 backdrop-blur-md"
         }
         style={{ paddingBottom: embedded ? undefined : "env(safe-area-inset-bottom)" }}
       >
         {replyTo && (
-          <div className="mb-2 flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2">
+          <div className="mb-3 flex items-center justify-between rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 animate-in fade-in slide-in-from-top-2">
             <div className="min-w-0">
-              <div className="flex items-center gap-1 text-[10px] font-bold text-[#9aa8ff]">
-                <Reply size={11} />
-                Reply
+              <div className="flex items-center gap-1.5 text-xs font-bold text-blue-300 mb-1">
+                <Reply size={13} />
+                Хариулт
               </div>
-              <p className="truncate text-[11px] text-white/70">{getReplyPreview(replyTo)}</p>
+              <p className="truncate text-sm text-slate-300">{getReplyPreview(replyTo)}</p>
             </div>
             <button
               type="button"
               onClick={() => setReplyTo(null)}
-              className="ml-2 flex h-7 w-7 items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white"
+              className="ml-2 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition-colors shrink-0"
               aria-label="Cancel reply"
             >
-              <X size={13} />
+              <X size={16} />
             </button>
           </div>
         )}
-        <div className="flex items-center gap-2 bg-[#0f1117] h-full">
-          {/* image-icon 44px */}
+        <div className="flex items-end gap-2 bg-transparent">
+          {/* Attachment button */}
           <button
             type="button"
             aria-label="Pick image or file"
             onClick={handlePickAttachmentsClick}
-            className="w-[44px] h-[44px] flex items-center justify-center rounded-xl bg-white/[0.04] text-white hover:bg-white/[0.07] transition-all shrink-0"
+            className="h-11 w-11 flex items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-all shrink-0 shadow-lg shadow-blue-500/20"
           >
-            <ImageIcon size={18} />
+            <ImageIcon size={20} />
           </button>
 
-          {/* input flex-1 */}
+          {/* Input */}
           <input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Бичих..."
+            placeholder="Сэтгэгдэл бичээрэй..."
             disabled={sending}
-            className="flex-1 bg-[#1a2035] border border-white/5 rounded-xl py-2 px-4 text-xs outline-none focus:border-[#4F67FF]/30 text-white placeholder:text-white/30 disabled:opacity-50 h-[44px] min-h-[44px]"
+            className="flex-1 bg-slate-700/50 border border-slate-600 rounded-xl py-2.5 px-4 text-sm outline-none focus:border-blue-500/50 focus:bg-slate-700/70 text-white placeholder:text-slate-500 disabled:opacity-50 transition-colors h-11 resize-none"
           />
 
-          {/* send button 44px purple circle */}
+          {/* Send button */}
           <button
             type="submit"
             disabled={sending || !input.trim()}
-            className="w-[44px] h-[44px] flex items-center justify-center rounded-full bg-[#6c63ff] text-white hover:bg-[#5a52ff] disabled:opacity-50 transition-all shrink-0"
+            className="h-11 w-11 flex items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0 shadow-lg shadow-blue-500/20"
           >
-            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>
         </div>
       </form>

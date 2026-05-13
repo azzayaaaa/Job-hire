@@ -114,7 +114,6 @@ export const register = async (req: Request, res: Response) => {
       email,
       password: hashedPassword,
       userType,
-      credits: inviterId ? 15 : 10,
       referralCode: myReferralCode,
       referredBy: inviterId
     });
@@ -127,11 +126,11 @@ export const register = async (req: Request, res: Response) => {
       const io = req.app.get('io');
       if (io) io.to('admin-room').emit('admin-data-updated');
 
-      // 2. БАЯР ХҮРГЭХ ИМЭЙЛ (NOTIFY SERVICE)
+      // 2. ТАВТАЙ МОРИЛОХ ИМЭЙЛ (NOTIFY SERVICE)
       await axios.post(`${NOTIFY_SERVICE_URL}/send-email`, {
         to: email,
-        subject: 'JobHub-д тавтай морил! 🎁',
-        html: `<h1>Бүртгэл амжилттай боллоо!</h1><p>Танд ${newUser.credits} кредит бэлэглэлээ.</p>`
+        subject: 'JobHub-д тавтай морил!',
+        html: `<h1>Бүртгэл амжилттай боллоо!</h1><p>Free эрхээр AI CV болон өөрийгөө хөгжүүлэх боломжийг тус бүр 1 удаа туршаарай.</p>`
       });
 
       delete verificationCodes[email];
@@ -268,7 +267,6 @@ export const googleLogin = async (req: Request, res: Response) => {
       email,
       password: "",
       userType: newUserType,
-      credits: 10,
       referralCode,
       referredBy: null,
     });
@@ -307,8 +305,12 @@ export const getUserProfile = async (req: any, res: Response) => {
   try {
     const response = await axios.get(`${USER_SERVICE_URL}/profile/${id}`);
     return res.status(200).json(response.data);
-  } catch (error) {
-    return res.status(500).json({ error: "Мэдээлэл авахад алдаа гарлаа" });
+  } catch (error: any) {
+    console.error("Get User Profile Error:", error?.response?.data || error?.message || error);
+    return res.status(500).json({
+      error: "Мэдээлэл авахад алдаа гарлаа",
+      details: error?.response?.data?.details || error?.response?.data?.error || error?.message,
+    });
   }
 };
 

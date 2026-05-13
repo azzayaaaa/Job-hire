@@ -8,9 +8,11 @@ import { useSession } from "next-auth/react";
 import { useLanguage, useTheme } from "../../Providers";
 import { authenticatedFetch } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import { useAlert } from "@/components/AlertProvider";
 
 export default function SettingsPage() {
   const { data: session, status } = useSession();
+  const { showAlert } = useAlert();
   const { lang, changeLang, t } = useLanguage();
   const { theme, toggleTheme } = useTheme();
   const [loading, setLoading] = useState(false);
@@ -47,14 +49,14 @@ export default function SettingsPage() {
       setEmailNotifications(!emailNotifications);
     } catch (error) {
       console.error("Failed to update notification preferences:", error);
-      alert("Мэдэгдлүүдийн сонголтыг солихад алдаа гарлаа");
+      showAlert("Мэдэгдлүүдийн сонголтыг солихад алдаа гарлаа", "error");
     } finally {
       setSavingNotifications(false);
     }
   };
 
   const handleCreatePassword = async () => {
-    alert("Энэ функц тун удахгүй нэмэгдэнэ. Та 'Нууц үг мартсан' хэсгийг ашиглан нууц үг тохируулах боломжтой.");
+    showAlert("Энэ функц тун удахгүй нэмэгдэнэ. Та 'Нууц үг мартсан' хэсгийг ашиглан нууц үг тохируулах боломжтой.", "info");
   };
 
   if (status === "loading" || fetching) return <div className="h-screen flex items-center justify-center bg-background"><Loader2 className="animate-spin text-primary" /></div>;
@@ -78,8 +80,8 @@ export default function SettingsPage() {
             
             <div className="space-y-6">
               {/* Email Notifications */}
-              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover-lift">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 hover-lift sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
                     <Bell size={20} />
                   </div>
@@ -96,8 +98,8 @@ export default function SettingsPage() {
               </div>
 
               {/* Theme Toggle */}
-              <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/5 hover-lift">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-col gap-4 p-4 bg-white/5 rounded-2xl border border-white/5 hover-lift sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-4">
                   <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
                     {theme === "dark" ? <Moon size={20} /> : <Sun size={20} />}
                   </div>
@@ -121,7 +123,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <button 
                     onClick={() => changeLang("mn")}
                     className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${lang === "mn" ? "bg-primary/10 border-primary text-primary" : "bg-white/5 border-white/5 text-secondary-text"}`}

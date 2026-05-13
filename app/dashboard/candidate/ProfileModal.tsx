@@ -1,7 +1,8 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import { compressImageDataUrl, compressImageFile, safeSetLocalStorage, loadFromIndexedDB } from "@/lib/imageStorage";
+import { useAlert } from "@/components/AlertProvider";
 
 type CandidateProfileForm = {
   lastName: string;
@@ -55,6 +56,8 @@ export default function ProfileModal({
   }) => void;
 }) {
   const [form, setForm] = useState<CandidateProfileForm>(emptyProfile);
+  const { showAlert } = useAlert();
+  const lastCyrillicWarningAt = useRef(0);
 
   useEffect(() => {
     loadProfile(userId).then(profile => setForm(profile));
@@ -62,6 +65,10 @@ export default function ProfileModal({
 
   const handleCyrillicNameChange = (key: "lastName" | "firstName", value: string) => {
     const cyrillicOnly = value.replace(/[^А-Яа-яЁёӨөҮү\s-]/g, "");
+    if (value !== cyrillicOnly && Date.now() - lastCyrillicWarningAt.current > 1200) {
+      lastCyrillicWarningAt.current = Date.now();
+      showAlert("Овог, нэрийг зөвхөн кирилл үсгээр бичнэ үү.", "warning");
+    }
     setForm((f) => ({ ...f, [key]: cyrillicOnly }));
   };
 
@@ -84,40 +91,50 @@ export default function ProfileModal({
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
-      alert("Зөвхөн зураг файл сонгоно уу.");
+      showAlert("Зөвхөн зураг файл сонгоно уу.", "warning");
       e.target.value = "";
       return;
     }
 
-    alert("Анхааруулга: Цээж зураг тод, нүүр бүтэн харагдсан, албан маягийн зураг байвал тохиромжтой.");
+    showAlert("Цээж зураг тод, нүүр бүтэн харагдсан, албан маягийн зураг байвал тохиромжтой.", "info");
 
     try {
       const photo = await compressImageFile(file, { maxWidth: 400, maxHeight: 400, quality: 0.65 });
       setForm((f) => ({ ...f, photo }));
     } catch {
-      alert("Зураг боловсруулахад алдаа гарлаа. Өөр зураг сонгоно уу.");
+      showAlert("Зураг боловсруулахад алдаа гарлаа. Өөр зураг сонгоно уу.", "error");
       e.target.value = "";
     }
   };
 
   const handleSave = async () => {
+    if (!form.photo) {
+      showAlert("Цээж зураг оруулна уу.", "warning");
+      return;
+    }
+
     if (!form.lastName.trim() || !form.firstName.trim()) {
-      alert("Овог, нэрээ кирилл үсгээр бөглөнө үү.");
+      showAlert("Овог, нэрээ кирилл үсгээр бөглөнө үү.", "warning");
       return;
     }
 
     if (!/^[А-Яа-яЁёӨөҮү\s-]+$/.test(form.lastName) || !/^[А-Яа-яЁёӨөҮү\s-]+$/.test(form.firstName)) {
-      alert("Овог, нэр зөвхөн кирилл үсэг байх ёстой.");
+      showAlert("Овог, нэр зөвхөн кирилл үсэг байх ёстой.", "warning");
       return;
     }
 
-    if (form.phone && !/^\d{8}$/.test(form.phone)) {
-      alert("Утасны дугаар яг 8 оронтой тоо байх ёстой.");
+    if (!/^\d{8}$/.test(form.phone)) {
+      showAlert("Утасны дугаар яг 8 оронтой тоо байх ёстой.", "warning");
       return;
     }
 
-    if (form.age && Number(form.age) > 99) {
-      alert("Нас 99-өөс их байж болохгүй.");
+    if (!form.age || Number(form.age) < 16 || Number(form.age) > 99) {
+      showAlert("Насаа 16-99 хооронд зөв оруулна уу.", "warning");
+      return;
+    }
+
+    if (!form.gender) {
+      showAlert("Хүйсээ сонгоно уу.", "warning");
       return;
     }
 
@@ -137,26 +154,26 @@ export default function ProfileModal({
 
     const saved = await safeSetLocalStorage(storageKey, JSON.stringify(nextForm));
     if (!saved) {
-      alert("Зураг хэт том байна. Бага хэмжээтэй JPG/PNG зураг сонгоно уу.");
+      showAlert("Зураг хэт том байна. Бага хэмжээтэй JPG/PNG зураг сонгоно уу.", "warning");
       return;
     }
     onSaved?.(nextForm);
-    alert("Хадгалагдлаа!");
+    showAlert("Хадгалагдлаа!", "success");
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-      <div className="bg-[#0d1117] border border-[#1e2535] rounded-2xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#1e2535]">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-3 sm:items-center sm:p-4">
+      <div className="my-3 max-h-[calc(100dvh-24px)] w-full max-w-md overflow-y-auto rounded-2xl border border-[#1e2535] bg-[#0d1117]">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#1e2535] bg-[#0d1117] px-4 py-4 sm:px-6">
           <p className="text-white font-semibold">Профайл бөглөх</p>
           <button onClick={onClose} className="text-gray-500 hover:text-white">
             <X size={18} />
           </button>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="space-y-4 p-4 sm:p-6">
           {/* Цээж зураг */}
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
             <div
               onClick={() => document.getElementById("photoInput")?.click()}
               className="w-20 h-20 rounded-full bg-[#1a2035] border-2 border-dashed border-[#3b5bdb]/50 flex items-center justify-center overflow-hidden cursor-pointer shrink-0"
@@ -171,7 +188,7 @@ export default function ProfileModal({
                 </span>
               )}
             </div>
-            <div>
+            <div className="min-w-0">
               <p className="text-sm text-white font-medium mb-1">Цээж зураг</p>
               <p className="text-xs text-gray-500 mb-2">JPG, PNG дэмжинэ</p>
               <button
@@ -191,7 +208,7 @@ export default function ProfileModal({
           </div>
 
           {/* Овог, Нэр */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {[
               ["lastName", "Овог"],
               ["firstName", "Нэр"],
@@ -240,7 +257,7 @@ export default function ProfileModal({
           {/* Хүйс */}
           <div>
             <label className="text-xs text-gray-500 block mb-2">Хүйс</label>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               {[
                 ["male", "Эрэгтэй"],
                 ["female", "Эмэгтэй"],
@@ -268,7 +285,7 @@ export default function ProfileModal({
           </div>
 
           {/* Buttons */}
-          <div className="flex gap-2 pt-2 border-t border-[#1e2535]">
+          <div className="flex flex-col gap-2 border-t border-[#1e2535] pt-2 sm:flex-row">
             <button
               onClick={handleSave}
               className="flex-1 py-2.5 bg-[#3b5bdb] text-white text-sm font-semibold rounded-xl hover:bg-[#4c6ef5] transition-all"

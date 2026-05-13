@@ -24,6 +24,7 @@ import axios from "axios";
 import { useLanguage, useTheme } from "../Providers";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
+import { useAlert } from "@/components/AlertProvider";
 import NotificationCenter from "@/components/NotificationCenter";
 
 export default function DashboardLayout({
@@ -36,6 +37,7 @@ export default function DashboardLayout({
   const { data: session } = useSession();
   const { t } = useLanguage();
   const { theme } = useTheme();
+  const { showAlert } = useAlert();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -91,7 +93,7 @@ export default function DashboardLayout({
 
   const copyReferral = () => {
     navigator.clipboard.writeText(profile.referralCode);
-    alert("Код хуулагдлаа! Найздаа илгээж 5 кредит бэлгэнд аваарай.");
+    showAlert("Урилгын код хуулагдлаа.", "success");
   };
 
   const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,9 +115,9 @@ export default function DashboardLayout({
         phone: phone || prev.phone,
         location: location || prev.location,
       }));
-      alert("AI таны CV-г амжилттай уншиж, мэдээллийг бөглөлөө!");
+      showAlert("АI таны CV-г амжилттай уншиж, мэдээллийг бөглөлөө!", "success");
     } catch {
-      alert("CV уншихад алдаа гарлаа.");
+      showAlert("СV уншихад алдаа гарлаа.", "error");
     } finally {
       setIsParsingCv(false);
     }
@@ -130,10 +132,10 @@ export default function DashboardLayout({
         userId,
         ...profile,
       });
-      alert("Амжилттай хадгалагдлаа");
+      showAlert("Амжилттай хадгалагдлаа", "success");
       setIsProfileOpen(false);
     } catch {
-      alert("Алдаа гарлаа");
+      showAlert("Алдаа гарлаа", "error");
     } finally {
       setProfileLoading(false);
     }
@@ -173,7 +175,7 @@ export default function DashboardLayout({
   };
 
   return (
-    <div className="flex h-screen w-full bg-background text-foreground overflow-hidden font-sans relative">
+    <div className="relative flex h-[100dvh] w-full min-w-0 overflow-hidden bg-background font-sans text-foreground">
       {/* ── Profile Modal ──────────────────────────────── */}
       {isProfileOpen && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-300">
@@ -328,7 +330,7 @@ export default function DashboardLayout({
       )}
 
       {/* ── Main Content (full width, no sidebar) ──────── */}
-      <main className="flex-1 overflow-hidden bg-background animate-fade-in relative">
+      <main className="min-w-0 flex-1 overflow-hidden bg-background animate-fade-in relative">
         {children}
       </main>
     </div>

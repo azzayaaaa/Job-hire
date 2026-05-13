@@ -67,26 +67,28 @@ export const getAxiosClient = (): AxiosInstance => {
       // Log different error types
       if (isOptionalChatPoll) {
         console.debug("Chat service unavailable; conversations will retry later.");
+      } else if (status === 402) {
+        // 402 is expected when hitting free tier limits - not an error
+        console.debug('Payment required (402): User has hit free tier limit');
       } else if (status === 401) {
         console.warn('Unauthorized (401): Session may have expired');
       } else if (errorCode === 'ECONNABORTED') {
-        console.error('Request timeout (30s exceeded) - server may be unresponsive');
+        console.error(`Request timeout (30s exceeded) for ${requestUrl} - server may be unresponsive`);
       } else if (errorCode === 'ERR_NETWORK' || errorMessage === 'Network Error') {
-        // Network errors might still result in successful responses in some cases
-        // Log as debug to avoid alarming users when request actually succeeds
-        console.debug('Network error detected:', errorMessage);
+        // Network errors might indicate service is not responding or CORS issues
+        console.error(`Network error calling ${requestUrl}:`, errorMessage, 'Check if service is running and CORS is configured');
         // Still reject to maintain existing behavior
       } else if (status) {
         // Server responded with an error status
-        console.error(`Server error ${status}:`, error.response?.data);
+        console.error(`Server error ${status} calling ${requestUrl}:`, error.response?.data);
       } else if (error.request) {
         // Request was made but no response received
-        console.error('No response from server - check connectivity');
+        console.error(`No response from server at ${requestUrl} - check connectivity`);
       } else if (error.config) {
         // Error in request configuration
-        console.error('Request configuration error:', errorMessage);
+        console.error(`Request configuration error for ${requestUrl}:`, errorMessage);
       } else {
-        console.error('Unknown error:', errorMessage);
+        console.error(`Unknown error calling ${requestUrl}:`, errorMessage);
       }
 
       return Promise.reject(error);
@@ -97,62 +99,108 @@ export const getAxiosClient = (): AxiosInstance => {
 };
 
 /**
- * Make authenticated API call
+ * Retry failed requests with exponential backoff for network errors
+ */
+const retryWithBackoff = async (
+  fn: () => Promise<any>,
+  maxRetries: number = 2,
+  initialDelayMs: number = 500
+): Promise<any> => {
+  let lastError: any;
+  
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      
+      // Only retry on network errors, not on server errors
+      const isNetworkError = 
+        error?.code === 'ERR_NETWORK' || 
+        error?.message === 'Network Error' ||
+        error?.code === 'ECONNREFUSED' ||
+        error?.code === 'ETIMEDOUT';
+      
+      if (!isNetworkError || attempt === maxRetries) {
+        throw error;
+      }
+      
+      const delayMs = initialDelayMs * Math.pow(2, attempt);
+      console.debug(`Network error, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+  
+  throw lastError;
+};
+
+/**
+ * Make authenticated API call with automatic retry for network errors
  * Usage: await authenticatedFetch(`http://localhost:5001/api/auth/profile/${userId}`)
  */
 export const authenticatedFetch = async (
   url: string,
   config?: AxiosRequestConfig
 ) => {
-  const client = getAxiosClient();
-  return client.get(url, config);
+  return retryWithBackoff(() => {
+    const client = getAxiosClient();
+    return client.get(url, config);
+  });
 };
 
 /**
- * Make authenticated POST request
+ * Make authenticated POST request with automatic retry for network errors
  */
 export const authenticatedPost = async (
   url: string,
   data?: any,
   config?: AxiosRequestConfig
 ) => {
-  const client = getAxiosClient();
-  return client.post(url, data, config);
+  return retryWithBackoff(() => {
+    const client = getAxiosClient();
+    return client.post(url, data, config);
+  });
 };
 
 /**
- * Make authenticated PUT request
+ * Make authenticated PUT request with automatic retry for network errors
  */
 export const authenticatedPut = async (
   url: string,
   data?: any,
   config?: AxiosRequestConfig
 ) => {
-  const client = getAxiosClient();
-  return client.put(url, data, config);
+  return retryWithBackoff(() => {
+    const client = getAxiosClient();
+    return client.put(url, data, config);
+  });
 };
 
 /**
- * Make authenticated PATCH request
+ * Make authenticated PATCH request with automatic retry for network errors
  */
 export const authenticatedPatch = async (
   url: string,
   data?: any,
   config?: AxiosRequestConfig
 ) => {
-  const client = getAxiosClient();
-  return client.patch(url, data, config);
+  return retryWithBackoff(() => {
+    const client = getAxiosClient();
+    return client.patch(url, data, config);
+  });
 };
 
 /**
- * Make authenticated DELETE request
+ * Make authenticated DELETE request with automatic retry for network errors
  */
 export const authenticatedDelete = async (
   url: string,
   config?: AxiosRequestConfig
 ) => {
-  const client = getAxiosClient();
-  return client.delete(url, config);
+  return retryWithBackoff(() => {
+    const client = getAxiosClient();
+    return client.delete(url, config);
+  });
 };
 
 // Reset instance when session changes (for logout)

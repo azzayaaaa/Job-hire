@@ -16,6 +16,7 @@ type Conversation = {
   email?: string;
   fullName?: string;
   lastMessage?: string;
+  unreadCount?: number;
 };
 
 function getParticipant(conv: Conversation) {
@@ -30,7 +31,11 @@ function getInitial(contact: { fullName?: string; email?: string }) {
   return (contact.fullName?.[0] || contact.email?.[0] || "?").toUpperCase();
 }
 
-export default function FloatingChat() {
+export default function FloatingChat({
+  enabled = false,
+}: {
+  enabled?: boolean;
+}) {
   const { data: session } = useSession();
   const userId = (session?.user as any)?.id as number | undefined;
 
@@ -41,22 +46,45 @@ export default function FloatingChat() {
 
   // unread badge (simple heuristic: count conversations without lastMessage seen is not available)
   const unreadCount = useMemo(() => {
-    const count = conversations.filter((c) => c?.lastMessage).length;
+    const count = conversations.reduce((sum, conversation) => sum + Number(conversation.unreadCount || 0), 0);
     return panelOpen ? 0 : count;
   }, [conversations, panelOpen]);
 
   const bubbleSize = 56;
 
   // Bubble visibility + hover state (BUG 4)
-  const [bubbleVisible, setBubbleVisible] = useState(true);
+  const [bubbleVisible, setBubbleVisible] = useState(enabled);
   const [showDesktopClose, setShowDesktopClose] = useState(false);
 
   // Bubble position (fixed bottom-right by default)
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => {
+    if (typeof window === "undefined") return { x: 0, y: 0 };
+    return {
+      x: Math.max(12, window.innerWidth - 72),
+      y: Math.max(12, window.innerHeight - 96),
+    };
+  });
 
   useEffect(() => {
-    setPos({ x: window.innerWidth - 72, y: window.innerHeight - 96 });
-  }, []);
+    const clampPosition = () => {
+      setPos((current) => ({
+        x: Math.max(12, Math.min(current.x || window.innerWidth - 72, window.innerWidth - bubbleSize - 12)),
+        y: Math.max(12, Math.min(current.y || window.innerHeight - 96, window.innerHeight - bubbleSize - 12)),
+      }));
+    };
+
+    clampPosition();
+    window.addEventListener("resize", clampPosition);
+    return () => window.removeEventListener("resize", clampPosition);
+  }, [bubbleSize]);
+
+  useEffect(() => {
+    setBubbleVisible(enabled);
+    if (!enabled) {
+      setPanelOpen(false);
+      setSelectedContact(null);
+    }
+  }, [enabled]);
 
   // Desktop dragging
   const [isDragging, setIsDragging] = useState(false);
@@ -139,6 +167,7 @@ export default function FloatingChat() {
     if (panelOpen) return;
 
     setPanelOpen(true);
+    setConversations((prev) => prev.map((conversation) => ({ ...conversation, unreadCount: 0 })));
 
     setSelectedContact((prev: any) => {
       if (prev?.id) return prev;
@@ -247,6 +276,7 @@ export default function FloatingChat() {
         convId: conv.id,
         ...p,
         lastMessage: conv.lastMessage ?? "Мессеж байхгүй...",
+        unreadCount: Number(conv.unreadCount || 0),
       };
     });
   }, [conversations]);
@@ -297,7 +327,7 @@ export default function FloatingChat() {
             </div>
 
             {unreadCount > 0 && (
-              <div className="absolute -top-1 -right-1 w-5 h-5 bg-[#4F67FF] rounded-full flex items-center justify-center text-[9px] font-black text-white border-2 border-[#0a0f1e]">
+              <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center text-[9px] font-black text-white border-2 border-[#0a0f1e]">
                 {unreadCount > 9 ? "9+" : unreadCount}
               </div>
             )}
@@ -321,13 +351,13 @@ export default function FloatingChat() {
       )}
 
       {/* Sliding Panel */}
-      <div className="fixed z-[9998] pointer-events-none right-3 bottom-20 w-[calc(100vw-24px)] md:right-[18px] md:bottom-[18px] md:w-[400px]">
+      <div className="pointer-events-none fixed right-2 bottom-20 z-[9998] w-[calc(100vw-16px)] sm:right-3 sm:w-[min(420px,calc(100vw-24px))] md:right-[18px] md:bottom-[18px] md:w-[400px]">
         <div
           className={`bg-[#0d1426] border border-white/[0.06] rounded-2xl shadow-2xl overflow-hidden transition-all duration-400 ${
             panelOpen ? "translate-y-0 opacity-100" : "translate-y-[20px] opacity-0"
           }`}
           style={{
-            height: "min(500px, calc(100vh - 120px))",
+            height: "min(500px, calc(100dvh - 120px))",
             pointerEvents: panelOpen ? ("auto" as const) : ("none" as const),
             transformOrigin: "bottom right",
           }}
@@ -357,7 +387,7 @@ export default function FloatingChat() {
           {/* Content */}
           <div className="h-[calc(100%-56px)] flex overflow-hidden">
             {/* Left: Conversations */}
-            <div className="w-[128px] md:w-[160px] border-r border-white/[0.06] bg-[#0b1223] overflow-y-auto">
+            <div className="w-[108px] overflow-y-auto border-r border-white/[0.06] bg-[#0b1223] sm:w-[140px] md:w-[160px]">
               {filteredConversations.length === 0 ? (
                 <div className="p-4 text-white/30 text-[11px]">Яриа байхгүй</div>
               ) : (
@@ -380,9 +410,16 @@ export default function FloatingChat() {
                           {(c.fullName?.[0] || c.email?.[0] || "U").toUpperCase()}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-bold text-white truncate">
-                            {c.fullName || c.email.split("@")[0]}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <p className="min-w-0 flex-1 truncate text-[11px] font-bold text-white">
+                              {c.fullName || c.email.split("@")[0]}
+                            </p>
+                            {c.unreadCount > 0 && (
+                              <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-black text-white">
+                                {c.unreadCount > 9 ? "9+" : c.unreadCount}
+                              </span>
+                            )}
+                          </div>
                           <p className="text-[9px] text-white/40 truncate">{c.lastMessage}</p>
                         </div>
                       </div>

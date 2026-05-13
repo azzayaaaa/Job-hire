@@ -155,6 +155,7 @@ async function groqRespond(
   maxTokens: number = 1024,
   history?: unknown,
   systemContext?: unknown,
+  temperatureOverride?: number,
 ): Promise<string | null> {
   const messages = normalizeGroqMessages(input, useMongoliPrompt, history, systemContext);
 
@@ -164,7 +165,7 @@ async function groqRespond(
       {
         model: GROQ_TEXT_MODEL,
         messages,
-        temperature: useMongoliPrompt ? 0.55 : 0.7,
+        temperature: temperatureOverride ?? (useMongoliPrompt ? 0.55 : 0.7),
         max_tokens: maxTokens,
       },
       {
@@ -254,6 +255,47 @@ async function extractUploadedText(file: Express.Multer.File): Promise<string> {
   }
 
   return "";
+}
+
+async function extractPdfViaVision(file: Express.Multer.File): Promise<string> {
+  const parser = new PDFParse({ data: file.buffer });
+  try {
+    const screenshots = await parser.getScreenshot({
+      first: 2,
+      desiredWidth: 1400,
+      imageBuffer: true,
+      imageDataUrl: false,
+    });
+
+    const pageTexts = await Promise.all(
+      screenshots.pages.slice(0, 2).map(async (page) => {
+        const pageFile = {
+          ...file,
+          originalname: `${file.originalname || "cv"}.page-${page.pageNumber}.png`,
+          mimetype: "image/png",
+          buffer: Buffer.from(page.data),
+        } as Express.Multer.File;
+
+        return groqVisionRespond(
+          "Extract every readable resume/CV detail from this rendered PDF page. Return plain text only. Preserve names, contact details, roles, skills, work history, and education.",
+          pageFile,
+        );
+      }),
+    );
+
+    return pageTexts
+      .filter((text): text is string => Boolean(text))
+      .filter(
+        (text) =>
+          !/ямар ч текст харагдахгүй|унших боломжтой мэдээлэл байхгүй|no text (?:is )?visible|the page is empty|there are no details to extract/i.test(
+            text,
+          ),
+      )
+      .join("\n")
+      .trim();
+  } finally {
+    await parser.destroy();
+  }
 }
 
 function compactText(value: unknown, maxChars: number): string {
@@ -350,9 +392,13 @@ app.post("/api/ai/ask", async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error("[ERROR] ASK ERROR:", err.message);
-    res.status(500).json({ 
+    const upstreamStatus = Number(err.response?.status);
+    const isRateLimited = upstreamStatus === 429;
+    res.status(isRateLimited ? 429 : 500).json({ 
       success: false,
-      error: err.message ?? "AI request failed",
+      error: isRateLimited
+        ? "AI үйлчилгээний өдрийн лимит түр дууссан байна. Түр хүлээгээд дахин оролдоно уу."
+        : err.message ?? "AI request failed",
       details: process.env.NODE_ENV === "development" ? err.response?.data : undefined
     });
   }
@@ -500,6 +546,74 @@ Format the response in clear, numbered sections in Mongolian.`;
   }
 });
 
+app.post("/api/ai/parse-cv", upload.single("file"), async (req: Request, res: Response) => {
+  try {
+    let file = (req as any).file as Express.Multer.File | undefined;
+    const dataUrl = typeof (req.body as any)?.dataUrl === "string" ? (req.body as any).dataUrl : "";
+
+    if (!file && dataUrl.startsWith("data:")) {
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        file = {
+          fieldname: "file",
+          originalname: String((req.body as any)?.fileName || "uploaded-cv"),
+          encoding: "7bit",
+          mimetype: match[1],
+          buffer: Buffer.from(match[2], "base64"),
+          size: Buffer.byteLength(match[2], "base64"),
+          destination: "",
+          filename: "",
+          path: "",
+          stream: undefined as any,
+        };
+      }
+    }
+
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        error: "file or dataUrl required",
+      });
+    }
+
+    let cvText = await extractUploadedText(file);
+
+    if (
+      file.mimetype === "application/pdf" &&
+      compactText(cvText, 400).replace(/--\s*\d+\s+of\s+\d+\s*--/gi, "").trim().length < 40
+    ) {
+      cvText = await extractPdfViaVision(file);
+    }
+
+    if (!cvText && file.mimetype.startsWith("image/")) {
+      cvText =
+        (await groqVisionRespond(
+          "Extract the visible resume/CV text from this image. Return plain text only. Preserve names, contact details, skills, experience, and education.",
+          file,
+        )) || "";
+    }
+
+    const normalizedCvText = compactText(cvText, 20_000);
+    if (!normalizedCvText) {
+      return res.status(422).json({
+        success: false,
+        error: "CV text could not be extracted",
+      });
+    }
+
+    return res.json({
+      success: true,
+      cvText: normalizedCvText,
+    });
+  } catch (err: any) {
+    console.error("[ERROR] PARSE-CV ERROR:", err?.message || err);
+    return res.status(500).json({
+      success: false,
+      error: err?.message ?? "parse-cv failed",
+    });
+  }
+});
+
 /**
  * ===============================
  * SKILL GAP ANALYSIS
@@ -644,16 +758,122 @@ Focus on:
 });
 
 // ===============================
+// 30-DAY LEARNING ROADMAP
+// ===============================
+app.post("/api/ai/generate-roadmap", async (req: Request, res: Response) => {
+  try {
+    const topic = compactText(req.body?.topic || "", 180);
+    const requestedDays = Number(req.body?.days || 30);
+    const days = Math.min(30, Math.max(7, Number.isFinite(requestedDays) ? requestedDays : 30));
+
+    if (!topic) {
+      return res.status(400).json({ error: "topic required" });
+    }
+
+    const prompt = `
+You are a practical learning coach.
+Create a ${days}-day learning roadmap for this topic: "${topic}".
+
+Return ONLY valid JSON, no markdown, no commentary:
+[
+  {
+    "day": 1,
+    "title": "Short task title in Mongolian",
+    "description": "Specific guidance in Mongolian: what to study, what to practice, and what small result to produce."
+  }
+]
+
+Rules:
+1. Produce exactly ${days} items.
+2. Use progressive sequencing from basics to applied practice.
+3. Each day must be actionable, concrete, and suitable as a TODO item.
+4. Include practice, review, mini-project, and recap days where appropriate.
+5. Do not repeat the same task wording.
+6. Keep each title concise and each description under 220 characters.
+`.trim();
+
+    const response = await groqRespond(prompt, true, 2600, undefined, undefined, 0.35);
+    if (!response) {
+      return res.status(502).json({ error: "roadmap generation failed", details: "Empty AI response" });
+    }
+
+    let roadmap: Array<{ day?: number; title?: string; description?: string }> = [];
+    try {
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        roadmap = JSON.parse(jsonMatch[0]);
+      }
+    } catch (error) {
+      console.error("[ERROR] ROADMAP JSON PARSE ERROR:", error);
+    }
+
+    const normalizedRoadmap = Array.isArray(roadmap)
+      ? roadmap
+          .slice(0, days)
+          .map((item, index) => ({
+            day: Number(item?.day) || index + 1,
+            title: compactText(item?.title || `${topic} сурах алхам ${index + 1}`, 120),
+            description: compactText(
+              item?.description || `${topic} сэдвийн ${index + 1}-р өдрийн сурах ажил.`,
+              260,
+            ),
+          }))
+          .filter((item) => item.title)
+      : [];
+
+    if (!normalizedRoadmap.length) {
+      return res.status(502).json({
+        error: "roadmap generation failed",
+        details: "AI response did not contain a usable roadmap",
+      });
+    }
+
+    res.json({
+      success: true,
+      roadmap: normalizedRoadmap,
+    });
+  } catch (err: any) {
+    console.error("[ERROR] GENERATE-ROADMAP ERROR:", {
+      message: err?.message,
+      data: err?.response?.data,
+    });
+    res.status(500).json({
+      error: err.message ?? "generate-roadmap failed",
+      details: err.response?.data ?? null,
+    });
+  }
+});
+
+// ===============================
 // GENERATE/ENHANCE CV
 // ===============================
 app.post("/api/ai/generate-cv", async (req: any, res: Response) => {
   try {
     console.log("[CV] Generate request received");
-    const { personalInfo, experience, education, skills, profilePhotoBase64 } = req.body;
+    const {
+      personalInfo: requestedPersonalInfo,
+      experience,
+      education,
+      skills,
+      profilePhotoBase64,
+      userInfo,
+      jobTitle,
+      jobDescription,
+    } = req.body;
+    const freeTextBrief = String(userInfo || "").trim();
+    const personalInfo = requestedPersonalInfo || (freeTextBrief
+      ? {
+          name: "Candidate",
+          email: "",
+          phone: "",
+          location: "",
+          jobTitle: jobTitle || "",
+        }
+      : null);
 
     if (!personalInfo) {
-      console.warn("[WARN] Missing personalInfo");
-      return res.status(400).json({ error: "personalInfo is required" });
+      console.warn("[WARN] Missing CV generation payload");
+      return res.status(400).json({ error: "personalInfo or userInfo is required" });
     }
 
     console.log("[OK] Personal Info received:", personalInfo.name);
@@ -701,6 +921,13 @@ ${educationText || "No education listed"}
 
 Skills:
 ${skillsText || "No skills listed"}
+
+User-provided brief:
+${freeTextBrief || "No free-text brief provided"}
+
+Target job context:
+- Job title: ${jobTitle || personalInfo.jobTitle || "Not specified"}
+- Job description: ${jobDescription || "Not specified"}
 
 Generate a complete, professional HTML CV document now:`;
 
@@ -810,6 +1037,219 @@ Make sure to extract all relevant information and provide it in the above JSON f
   } catch (err: any) {
     console.error("[ERROR] EXTRACT-FROM-FILE ERROR:", err);
     res.status(500).json({ error: err.message ?? "extract-from-file failed" });
+  }
+});
+
+// ===============================
+// CV MATCHING & JOB RECOMMENDATIONS
+// ===============================
+
+/**
+ * Calculate match score between CV and Job
+ * Returns a score from 0-100 and feedback
+ */
+app.post("/api/ai/match-cv-to-job", async (req: Request, res: Response) => {
+  try {
+    const { cv, jobTitle, jobDescription, jobRequirements } = req.body;
+
+    if (!cv || !jobTitle) {
+      return res.status(400).json({ error: "cv and jobTitle required" });
+    }
+
+    const cvText = typeof cv === "string" ? cv : JSON.stringify(cv);
+    const reqText = jobRequirements || "Not specified";
+    const descText = jobDescription || "Not specified";
+
+    const prompt = `You are an expert HR recruiter and CV analyzer. Analyze how well this CV matches the job posting.
+Use only evidence from the CV and job posting. Do not invent skills, experience, education, or requirements.
+For the exact same CV text and exact same job posting, return the same score and reasoning.
+Score strictly: strong direct evidence earns high score; missing required evidence lowers score.
+
+CV Content (first 2000 chars):
+${cvText.slice(0, 2000)}
+
+Job Title: ${jobTitle}
+Job Description: ${descText.slice(0, 1000)}
+Required Skills & Experience: ${reqText.slice(0, 1000)}
+
+Provide ONLY a JSON response with this exact format (no markdown, no code fences):
+{
+  "matchScore": <0-100 number>,
+  "summary": "<1-2 sentence summary in Mongolian explaining the fit>",
+  "strengths": ["<candidate skill/experience found in CV that helps for this job>", "<...>"],
+  "gaps": ["<required skill/experience missing or weak in CV>", "<...>"],
+  "recommendation": "<brief recommendation in Mongolian explaining why this chance is this percent and what to improve>"
+}`;
+
+    const response = await groqRespond(prompt, false, 1000, undefined, undefined, 0);
+    
+    if (!response) {
+      return res.status(502).json({ error: "AI matching failed" });
+    }
+
+    let matchData = {
+      matchScore: 0,
+      summary: "Matching analysis complete",
+      strengths: [],
+      gaps: [],
+      recommendation: ""
+    };
+
+    try {
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        matchData = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.warn("Failed to parse match response as JSON");
+      matchData.summary = response;
+    }
+
+    res.json({
+      success: true,
+      matchScore: matchData.matchScore,
+      analysis: matchData
+    });
+  } catch (err: any) {
+    console.error("[ERROR] MATCH-CV-TO-JOB ERROR:", err.message);
+    res.status(500).json({ error: err.message ?? "match-cv-to-job failed" });
+  }
+});
+
+/**
+ * Find matching jobs for a candidate based on their CV
+ * Returns list of suitable jobs with match scores
+ */
+app.post("/api/ai/find-matching-jobs", async (req: Request, res: Response) => {
+  try {
+    const { cv, availableJobs } = req.body;
+
+    if (!cv || !Array.isArray(availableJobs) || availableJobs.length === 0) {
+      return res.status(400).json({ error: "cv and availableJobs array required" });
+    }
+
+    const cvText = typeof cv === "string" ? cv : JSON.stringify(cv);
+    const jobsText = availableJobs
+      .slice(0, 10)
+      .map((job: any, idx: number) => 
+        `${idx + 1}. [ID:${job.id}] ${job.title} - ${job.location}\n   Requirements: ${job.requirements?.slice(0, 200)}`
+      )
+      .join("\n");
+
+    const prompt = `You are a career matching AI. A candidate has the CV below. Review the available jobs and match them based on fit.
+
+Candidate CV (first 1500 chars):
+${cvText.slice(0, 1500)}
+
+Available Jobs:
+${jobsText}
+
+For each job, provide a match score from 0-100. Return ONLY a JSON array with no markdown:
+[
+  {
+    "jobId": <job_id_number>,
+    "matchScore": <0-100>,
+    "reason": "<why this job matches in Mongolian>"
+  }
+]
+
+Sort by matchScore descending. Include only jobs with score >= 50.`;
+
+    const response = await groqRespond(prompt, false, 1200);
+
+    if (!response) {
+      return res.status(502).json({ error: "Job matching failed" });
+    }
+
+    let matches = [];
+    try {
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        matches = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.warn("Failed to parse job matches as JSON");
+    }
+
+    res.json({
+      success: true,
+      matches: matches.slice(0, 5)
+    });
+  } catch (err: any) {
+    console.error("[ERROR] FIND-MATCHING-JOBS ERROR:", err.message);
+    res.status(500).json({ error: err.message ?? "find-matching-jobs failed" });
+  }
+});
+
+/**
+ * Find matching candidates for a job posting
+ * Used by employers to see which candidates are most suitable
+ */
+app.post("/api/ai/match-candidates-to-job", async (req: Request, res: Response) => {
+  try {
+    const { jobTitle, jobDescription, jobRequirements, candidates } = req.body;
+
+    if (!jobTitle || !Array.isArray(candidates) || candidates.length === 0) {
+      return res.status(400).json({ error: "jobTitle and candidates array required" });
+    }
+
+    const candidatesText = candidates
+      .slice(0, 15)
+      .map((cand: any, idx: number) =>
+        `${idx + 1}. [ID:${cand.id}] ${cand.fullName || cand.email || "Unnamed candidate"}\n   CV/Profile: ${String(cand.cvText || cand.profileText || "").slice(0, 1200) || "(no readable CV/profile)"}\n   Skills: ${String(cand.skills || "").slice(0, 300) || "(not listed)"}`
+      )
+      .join("\n\n");
+
+    const prompt = `You are an expert recruiter. Match candidates to this job posting.
+
+Job Title: ${jobTitle}
+Job Description: ${jobDescription?.slice(0, 800) || "Not provided"}
+Required Skills: ${jobRequirements?.slice(0, 600) || "Not specified"}
+
+Candidates:
+${candidatesText}
+
+For each candidate, score their match from 0-100. Use only the candidate evidence provided above.
+Do not return candidates with no readable CV/profile evidence.
+Do not give 0 unless the candidate is completely unrelated, and exclude candidates below 40.
+Return ONLY a JSON array with no markdown:
+[
+  {
+    "candidateId": <candidate_id_number>,
+    "matchScore": <0-100>,
+    "strengths": ["<strength1>", "<strength2>"],
+    "feedback": "<brief feedback in Mongolian>"
+  }
+]
+
+Sort by matchScore descending. Include only candidates with score >= 40.`;
+
+    const response = await groqRespond(prompt, false, 1400);
+
+    if (!response) {
+      return res.status(502).json({ error: "Candidate matching failed" });
+    }
+
+    let matches: any[] = [];
+    try {
+      const jsonMatch = response.match(/\[[\s\S]*\]/);
+      if (jsonMatch) {
+        matches = JSON.parse(jsonMatch[0]);
+      }
+    } catch (e) {
+      console.warn("Failed to parse candidate matches as JSON");
+    }
+
+    res.json({
+      success: true,
+      matches: matches
+        .filter((match: any) => Number(match?.matchScore) >= 40)
+        .sort((a: any, b: any) => Number(b.matchScore) - Number(a.matchScore))
+        .slice(0, 10)
+    });
+  } catch (err: any) {
+    console.error("[ERROR] MATCH-CANDIDATES-TO-JOB ERROR:", err.message);
+    res.status(500).json({ error: err.message ?? "match-candidates-to-job failed" });
   }
 });
 
