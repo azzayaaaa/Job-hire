@@ -132,7 +132,7 @@ function EmployerDashboardContent() {
       } catch (jobsError: any) {
         if (jobsError?.code === 'ERR_NETWORK' || jobsError?.message === 'Network Error') {
           console.error("Job service unavailable - network error:", jobsError.message);
-          showAlert?.('error', 'Unable to fetch jobs. Please check if the job service is running.');
+          showAlert?.('Unable to fetch jobs. Please check if the job service is running.', 'error');
         }
         // Rethrow to be caught by outer catch
         throw jobsError;
@@ -195,7 +195,7 @@ function EmployerDashboardContent() {
       const errorMsg = e?.message || String(e);
       if (e?.code === 'ERR_NETWORK' || errorMsg === 'Network Error') {
         console.error("Network error fetching employer data:", errorMsg);
-        showAlert?.('error', 'Network error. Please ensure all services are running.');
+        showAlert?.('Network error. Please ensure all services are running.', 'error');
       } else {
         console.error("Error fetching employer data:", e);
       }
