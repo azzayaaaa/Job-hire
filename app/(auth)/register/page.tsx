@@ -11,7 +11,6 @@ import { API_URLS } from "@/lib/apiConfig";
 export default function RegisterPage() {
   const { showAlert } = useAlert();
   const [showPass, setShowPass] = useState(false);
-  const [isPasswordHelpOpen, setIsPasswordHelpOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [userType, setUserType] = useState("candidate");
   const [step, setStep] = useState(1);
@@ -19,24 +18,9 @@ export default function RegisterPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [code, setCode] = useState("");
-  const passwordChecks = {
-    length: password.length >= 8,
-    uppercase: /[A-Z]/.test(password),
-    lowercase: /[a-z]/.test(password),
-    number: /\d/.test(password),
-    special: /[^A-Za-z0-9]/.test(password),
-  };
-  const passwordScore = Object.values(passwordChecks).filter(Boolean).length;
-  const passwordStrength =
-    passwordScore >= 5 ? "Хүчтэй" : passwordScore >= 3 ? "Дунд" : "Сул";
-  const passwordStrengthColor =
-    passwordScore >= 5 ? "text-emerald-400" : passwordScore >= 3 ? "text-yellow-400" : "text-red-400";
-  const passwordStrengthWidth = `${Math.max(12, passwordScore * 20)}%`;
-  const passwordsMatch = password.length > 0 && password === confirmPassword;
-  const showPasswordRequirements = isPasswordHelpOpen || password.length > 0;
+  const isPasswordValid = password.length >= 8 && /[A-Za-zА-Яа-яӨөҮүЁё]/u.test(password) && /\d/.test(password);
   const [timer, setTimer] = useState(120); // 120 секунд
 
   useEffect(() => {
@@ -57,8 +41,7 @@ export default function RegisterPage() {
 
   const handleSendCode = async () => {
     if (!email || !password) return showAlert("Мэдээллээ бүрэн бөглөнө үү", "error");
-    if (passwordScore < 5) return showAlert("Нууц үг бүх шаардлагыг хангах ёстой.", "error");
-    if (!passwordsMatch) return showAlert("Нууц үг давталт таарахгүй байна.", "error");
+    if (!isPasswordValid) return showAlert("Нууц үг 8-аас дээш тэмдэгттэй, үсэг болон тоо холилдсон байх ёстой.", "error");
     setIsLoading(true);
     try {
       const res = await fetch(API_URLS.auth.sendCode(), {
@@ -185,45 +168,9 @@ export default function RegisterPage() {
                   <div className="space-y-1.5 text-black">
                     <label className="text-[10px] font-black text-[#374151] uppercase tracking-widest ml-1">Нууц үг</label>
                     <div className="relative">
-                      <input type={showPass ? "text" : "password"} value={password} onFocus={() => setIsPasswordHelpOpen(true)} onBlur={() => setIsPasswordHelpOpen(false)} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all pr-12" />
+                      <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all pr-12" />
                       <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white transition-colors">{showPass ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                     </div>
-                    {showPasswordRequirements && (
-                    <div className="animate-in fade-in slide-in-from-top-1 rounded-2xl border border-white/5 bg-white/[0.04] p-4 text-white duration-200">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-white/35">Нууц үгийн хүч</span>
-                        <span className={`text-[10px] font-black uppercase tracking-widest ${passwordStrengthColor}`}>{passwordStrength}</span>
-                      </div>
-                      <div className="mb-3 h-1.5 rounded-full bg-white/10">
-                        <div className="h-full rounded-full bg-[#10B981] transition-all" style={{ width: passwordStrengthWidth }} />
-                      </div>
-                      <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[11px] font-bold">
-                        {[
-                          [passwordChecks.length, "8+ тэмдэгт"],
-                          [passwordChecks.uppercase, "Том үсэг"],
-                          [passwordChecks.lowercase, "Жижиг үсэг"],
-                          [passwordChecks.number, "Тоо"],
-                          [passwordChecks.special, "Тусгай тэмдэгт"],
-                        ].map(([ok, label]) => (
-                          <span key={String(label)} className={ok ? "text-emerald-400" : "text-white/30"}>
-                            {ok ? "✓" : "×"} {label}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    )}
-                  </div>
-                  <div className="space-y-1.5 text-black">
-                    <label className="text-[10px] font-black text-[#374151] uppercase tracking-widest ml-1">Нууц үг давтах</label>
-                    <div className="relative">
-                      <input type={showPass ? "text" : "password"} value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Нууц үгээ дахин оруулна уу" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all pr-12 placeholder:text-white/25" />
-                      <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white transition-colors">{showPass ? <EyeOff size={18} /> : <Eye size={18} />}</button>
-                    </div>
-                    {confirmPassword && (
-                      <p className={`ml-1 text-[11px] font-bold ${passwordsMatch ? "text-emerald-400" : "text-red-400"}`}>
-                        {passwordsMatch ? "Нууц үг таарч байна" : "Нууц үг таарахгүй байна"}
-                      </p>
-                    )}
                   </div>
                   <div className="space-y-1.5 text-black">
                     <label className="text-[10px] font-black text-[#374151] uppercase tracking-widest ml-1">Урилгын код</label>

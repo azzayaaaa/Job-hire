@@ -10,6 +10,11 @@ const NOTIFY_SERVICE_URL = process.env.NOTIFY_SERVICE_URL || 'http://127.0.0.1:5
 
 const verificationCodes: Record<string, { code: string, expiresAt: number }> = {};
 
+function isStrongPassword(password: unknown) {
+  const value = String(password || '');
+  return value.length >= 8 && /[A-Za-zА-Яа-яӨөҮүЁё]/u.test(value) && /\d/.test(value);
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -91,6 +96,10 @@ export const sendCode = async (req: Request, res: Response) => {
 export const register = async (req: Request, res: Response) => {
   const { email, password, userType, code, invitedByCode } = req.body;
   const entry = verificationCodes[email];
+
+  if (!isStrongPassword(password)) {
+    return res.status(400).json({ error: "Нууц үг 8-аас дээш тэмдэгттэй, үсэг болон тоо холилдсон байх ёстой." });
+  }
 
   if (!entry || entry.code !== code || Date.now() > entry.expiresAt) {
     return res.status(400).json({ error: "Код буруу эсвэл хугацаа нь дууссан байна" });
