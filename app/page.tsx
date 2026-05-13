@@ -197,6 +197,7 @@ export default function LandingPage() {
   const [jobTypeFilters, setJobTypeFilters] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState<Set<number>>(new Set());
   const [currentPage, setCurrentPage] = useState(1);
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   useEffect(() => {
     const fetchJobs = async () => {
@@ -340,8 +341,8 @@ export default function LandingPage() {
   return (
     <main className="min-h-screen bg-[#050810] text-white">
       <nav className="sticky top-0 z-30 border-b border-white/[0.06] bg-[#0d1426]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
-          <Link href="/" className="flex items-center gap-3">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+          <Link href="/" className="flex min-w-0 items-center gap-3">
             <Image
               src="/logo.png"
               alt="JobHub"
@@ -350,13 +351,13 @@ export default function LandingPage() {
               className="h-10 w-10 rounded-xl object-contain"
               priority
             />
-            <div>
+            <div className="min-w-0">
               <p className="text-lg font-black leading-none text-white">JobHub</p>
-              <p className="text-xs font-semibold text-white/35">Ажлын зарын сан</p>
+              <p className="truncate text-xs font-semibold text-white/35">Ажлын зарын сан</p>
             </div>
           </Link>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {status === "authenticated" ? (
               <button
                 type="button"
@@ -367,10 +368,10 @@ export default function LandingPage() {
               </button>
             ) : (
               <>
-                <Link href="/login" className="rounded-xl px-4 py-2 text-sm font-bold text-white/60 transition hover:bg-white/[0.05] hover:text-white">
+                <Link href="/login" className="rounded-xl px-3 py-2 text-sm font-bold text-white/60 transition hover:bg-white/[0.05] hover:text-white sm:px-4">
                   Нэвтрэх
                 </Link>
-                <Link href="/register" className="rounded-xl bg-[#4F67FF] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#3d52e0]">
+                <Link href="/register" className="rounded-xl bg-[#4F67FF] px-3 py-2 text-sm font-bold text-white transition hover:bg-[#3d52e0] sm:px-4">
                   Бүртгүүлэх
                 </Link>
               </>
@@ -380,30 +381,30 @@ export default function LandingPage() {
       </nav>
 
       <section className="border-b border-white/[0.06] bg-[#0a0f1e]">
-        <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-7xl px-4 py-7 sm:px-6 sm:py-8 lg:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[#4F67FF]/20 bg-[#4F67FF]/10 px-3 py-1 text-xs font-black text-[#7f91ff]">
                 <Briefcase size={14} />
                 Нээлттэй ажлын байрууд
               </div>
-              <h1 className="text-3xl font-black tracking-tight text-white sm:text-4xl">Ажлын зараа хайж, CV илгээнэ үү</h1>
+              <h1 className="max-w-4xl text-2xl font-black tracking-tight text-white sm:text-4xl lg:text-5xl">Ажлын зараа хайж, CV илгээнэ үү</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-white/45">
                 Нэвтрээгүй хэрэглэгч ажлын зарыг үзэж болно. CV илгээх үед нэвтрэх хуудас руу шилжинэ.
               </p>
             </div>
-            <div className="flex rounded-2xl border border-white/[0.08] bg-white/[0.04] p-1 text-sm font-bold">
+            <div className="flex w-full rounded-2xl border border-white/[0.08] bg-white/[0.04] p-1 text-sm font-bold sm:w-auto">
               <button
                 type="button"
                 onClick={() => setSortBy("newest")}
-                className={`rounded-xl px-4 py-2 ${sortBy === "newest" ? "bg-[#4F67FF] text-white" : "text-white/40"}`}
+                className={`flex-1 rounded-xl px-4 py-2 sm:flex-none ${sortBy === "newest" ? "bg-[#4F67FF] text-white" : "text-white/40"}`}
               >
                 Шинэ
               </button>
               <button
                 type="button"
                 onClick={() => setSortBy("salary")}
-                className={`rounded-xl px-4 py-2 ${sortBy === "salary" ? "bg-[#4F67FF] text-white" : "text-white/40"}`}
+                className={`flex-1 rounded-xl px-4 py-2 sm:flex-none ${sortBy === "salary" ? "bg-[#4F67FF] text-white" : "text-white/40"}`}
               >
                 Цалин
               </button>
@@ -433,8 +434,19 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 lg:grid-cols-[280px_1fr] lg:px-8">
-        <aside className="h-fit rounded-2xl border border-white/[0.06] bg-[#0d1426] p-4 shadow-2xl shadow-black/20">
+      <section className="mx-auto grid max-w-7xl gap-5 px-4 py-5 sm:px-6 sm:py-6 lg:grid-cols-[280px_1fr] lg:gap-6 lg:px-8">
+        <div className="lg:hidden">
+          <button
+            type="button"
+            onClick={() => setShowMobileFilters((value) => !value)}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/[0.08] bg-[#0d1426] px-4 py-3 text-sm font-black text-white shadow-lg shadow-black/10"
+          >
+            <SlidersHorizontal size={17} className="text-[#4F67FF]" />
+            {showMobileFilters ? "Шүүлтүүр хаах" : "Шүүлтүүр нээх"}
+          </button>
+        </div>
+
+        <aside className={`${showMobileFilters ? "block" : "hidden"} h-fit rounded-2xl border border-white/[0.06] bg-[#0d1426] p-4 shadow-2xl shadow-black/20 lg:sticky lg:top-24 lg:block`}>
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2 font-black text-white">
               <SlidersHorizontal size={18} className="text-[#4F67FF]" />
@@ -608,9 +620,9 @@ export default function LandingPage() {
                 return (
                   <article
                     key={job.id}
-                    className="rounded-2xl border border-white/[0.06] bg-[#0d1426] p-4 shadow-lg shadow-black/10 transition hover:border-[#4F67FF]/35 hover:bg-[#111827]"
+                    className="rounded-2xl border border-white/[0.06] bg-[#0d1426] p-4 shadow-lg shadow-black/10 transition hover:border-[#4F67FF]/35 hover:bg-[#111827] sm:p-5"
                   >
-                    <div className="flex gap-4">
+                    <div className="flex flex-col gap-4 sm:flex-row">
                       <CompanyAvatar name={companyName} image={companyImage} />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
@@ -625,7 +637,7 @@ export default function LandingPage() {
                               <span>{getRelativeTime(job.createdAt)}</span>
                             </div>
                           </div>
-                          <div className="rounded-xl bg-[#4F67FF]/10 px-3 py-1 text-sm font-black text-[#9aa8ff]">
+                          <div className="w-fit max-w-full break-words rounded-xl bg-[#4F67FF]/10 px-3 py-1 text-sm font-black text-[#9aa8ff]">
                             {formatSalaryText(job)}
                           </div>
                         </div>
@@ -668,7 +680,7 @@ export default function LandingPage() {
                           <button
                             type="button"
                             onClick={() => handleApplyClick(job.id)}
-                            className="inline-flex h-10 items-center justify-center rounded-xl bg-[#4F67FF] px-5 text-sm font-black text-white transition hover:bg-[#3d52e0]"
+                            className="inline-flex h-10 w-full items-center justify-center rounded-xl bg-[#4F67FF] px-5 text-sm font-black text-white transition hover:bg-[#3d52e0] sm:w-auto"
                           >
                             CV илгээх
                           </button>
@@ -682,7 +694,7 @@ export default function LandingPage() {
           )}
 
           {totalPages > 1 && (
-            <div className="mt-5 flex items-center justify-center gap-2">
+            <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
               {Array.from({ length: totalPages }).map((_, index) => {
                 const page = index + 1;
                 return (

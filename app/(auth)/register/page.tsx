@@ -11,6 +11,7 @@ import { API_URLS } from "@/lib/apiConfig";
 export default function RegisterPage() {
   const { showAlert } = useAlert();
   const [showPass, setShowPass] = useState(false);
+  const [isPasswordHelpOpen, setIsPasswordHelpOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [userType, setUserType] = useState("candidate");
   const [step, setStep] = useState(1);
@@ -35,6 +36,7 @@ export default function RegisterPage() {
     passwordScore >= 5 ? "text-emerald-400" : passwordScore >= 3 ? "text-yellow-400" : "text-red-400";
   const passwordStrengthWidth = `${Math.max(12, passwordScore * 20)}%`;
   const passwordsMatch = password.length > 0 && password === confirmPassword;
+  const showPasswordRequirements = isPasswordHelpOpen || password.length > 0;
   const [timer, setTimer] = useState(120); // 120 секунд
 
   useEffect(() => {
@@ -183,10 +185,11 @@ export default function RegisterPage() {
                   <div className="space-y-1.5 text-black">
                     <label className="text-[10px] font-black text-[#374151] uppercase tracking-widest ml-1">Нууц үг</label>
                     <div className="relative">
-                      <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all pr-12" />
+                      <input type={showPass ? "text" : "password"} value={password} onFocus={() => setIsPasswordHelpOpen(true)} onBlur={() => setIsPasswordHelpOpen(false)} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all pr-12" />
                       <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white transition-colors">{showPass ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                     </div>
-                    <div className="rounded-2xl border border-white/5 bg-white/[0.04] p-4 text-white">
+                    {showPasswordRequirements && (
+                    <div className="animate-in fade-in slide-in-from-top-1 rounded-2xl border border-white/5 bg-white/[0.04] p-4 text-white duration-200">
                       <div className="mb-2 flex items-center justify-between">
                         <span className="text-[10px] font-black uppercase tracking-widest text-white/35">Нууц үгийн хүч</span>
                         <span className={`text-[10px] font-black uppercase tracking-widest ${passwordStrengthColor}`}>{passwordStrength}</span>
@@ -208,6 +211,7 @@ export default function RegisterPage() {
                         ))}
                       </div>
                     </div>
+                    )}
                   </div>
                   <div className="space-y-1.5 text-black">
                     <label className="text-[10px] font-black text-[#374151] uppercase tracking-widest ml-1">Нууц үг давтах</label>
