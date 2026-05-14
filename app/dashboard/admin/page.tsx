@@ -904,8 +904,8 @@ const AdminDashboardContent = () => {
     try {
       if (!silent) setLoading(true);
       const [statsRes, usersRes, paymentsRes] = await Promise.all([
-        authenticatedFetch(API_URLS.auth.adminStats()),
-        authenticatedFetch(API_URLS.auth.adminUsers()),
+        authenticatedFetch("http://localhost:5001/api/auth/admin/stats"),
+        authenticatedFetch("http://localhost:5001/api/auth/admin/users"),
         authenticatedFetch(API_URLS.user.adminPaymentOrders()),
       ]);
       setStats(statsRes.data);
@@ -966,7 +966,7 @@ const AdminDashboardContent = () => {
       s?.user?.userType === "ADMIN" || s?.user?.email === "azzayabayartai07@gmail.com";
     if (!isAdmin) return;
 
-    const socket = io(API_URLS.sockets.auth());
+    const socket = io("http://localhost:5001");
     socketRef.current = socket;
     
     socket.on("connect", () => socket.emit("join-admin"));
@@ -1080,7 +1080,7 @@ const AdminDashboardContent = () => {
 
   const handleUpdateRole = async (userId: number, newRole: string) => {
     try {
-      await authenticatedPost(API_URLS.auth.adminUpdateRole(), {
+      await authenticatedPost("http://localhost:5001/api/auth/admin/update-role", {
         userId,
         userType: newRole.toUpperCase(),
       });
@@ -1115,7 +1115,7 @@ const AdminDashboardContent = () => {
     if (!selectedUserForPlan) return;
 
     try {
-      await authenticatedPost(API_URLS.auth.adminUpdatePlan(), {
+      await authenticatedPost("http://localhost:5001/api/auth/admin/update-plan", {
         userId: selectedUserForPlan.id,
         plan: planChoice,
         duration: planChoice === "PRO" ? planDuration : undefined,
@@ -1177,7 +1177,7 @@ const AdminDashboardContent = () => {
     if (!confirm(`${email} хэрэглэгчийг устгах уу?`)) return;
 
     try {
-      await authenticatedDelete(API_URLS.auth.adminDeleteUser(userId));
+      await authenticatedDelete(`http://localhost:5001/api/auth/admin/users/${userId}`);
       showAlert("Хэрэглэгч амжилттай устгагдлаа", "success", "Амжилт");
       await fetchData();
       // Emit real-time event to other admins

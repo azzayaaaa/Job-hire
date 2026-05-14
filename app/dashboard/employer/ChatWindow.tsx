@@ -457,7 +457,7 @@ export default function ChatWindow({
     });
 
     try {
-      await authenticatedPost(API_URLS.chat.reaction(msg.id), {
+      await authenticatedPost(`http://localhost:5007/api/chat/messages/${msg.id}/reaction`, {
         reaction: nextReaction,
         userId: senderIdNum,
         receiverId: msg.senderId === senderIdNum ? msg.receiverId : msg.senderId,

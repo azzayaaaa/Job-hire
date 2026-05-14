@@ -6,7 +6,6 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "backend:start": "node scripts/start-backend.cjs",
     "lint": "eslint"
   },
   "dependencies": {

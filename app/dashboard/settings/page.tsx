@@ -25,7 +25,7 @@ export default function SettingsPage() {
     try {
       const userId = (session?.user as any)?.id;
       if (!userId) return;
-      const res = await authenticatedFetch(API_URLS.auth.profile(userId));
+      const res = await authenticatedFetch(`http://127.0.0.1:5001/api/auth/profile/${userId}`);
       setUserProfile(res.data);
       setEmailNotifications(res.data.emailNotifications ?? true);
     } catch (error) {

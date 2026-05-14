@@ -6,7 +6,6 @@ import { Eye, EyeOff, User, Briefcase, Loader2, ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useAlert } from "@/components/AlertProvider";
-import { API_URLS } from "@/lib/apiConfig";
 
 export default function RegisterPage() {
   const { showAlert } = useAlert();
@@ -20,7 +19,6 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [promoCode, setPromoCode] = useState("");
   const [code, setCode] = useState("");
-  const isPasswordValid = password.length >= 8 && /[A-Za-zА-Яа-яӨөҮүЁё]/u.test(password) && /\d/.test(password);
   const [timer, setTimer] = useState(120); // 120 секунд
 
   useEffect(() => {
@@ -41,10 +39,9 @@ export default function RegisterPage() {
 
   const handleSendCode = async () => {
     if (!email || !password) return showAlert("Мэдээллээ бүрэн бөглөнө үү", "error");
-    if (!isPasswordValid) return showAlert("Нууц үг 8-аас дээш тэмдэгттэй, үсэг болон тоо холилдсон байх ёстой.", "error");
     setIsLoading(true);
     try {
-      const res = await fetch(API_URLS.auth.sendCode(), {
+      const res = await fetch("http://localhost:5001/api/auth/send-code", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -67,7 +64,7 @@ export default function RegisterPage() {
     if (code.length !== 6) return showAlert("6 оронтой код оруулна уу", "error");
     setIsLoading(true);
     try {
-        const res = await fetch(API_URLS.auth.register(), {
+        const res = await fetch("http://localhost:5001/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, userType: userType.toUpperCase(), code, invitedByCode: promoCode }),
