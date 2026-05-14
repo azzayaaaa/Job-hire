@@ -27,6 +27,16 @@ import { API_URLS } from "@/lib/apiConfig";
 import { useAlert } from "@/components/AlertProvider";
 import NotificationCenter from "@/components/NotificationCenter";
 
+const ALLOWED_CV_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_CV_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+const CV_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp";
+const CV_FILE_TYPE_MESSAGE = "Зөвхөн PDF, JPG, JPEG, PNG, WEBP файл оруулж болно.";
+
+const isAllowedCVFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_CV_TYPES.has(file.type) || ALLOWED_CV_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
+
 export default function DashboardLayout({
   children,
   role,
@@ -99,6 +109,11 @@ export default function DashboardLayout({
   const handleCvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (!isAllowedCVFile(file)) {
+      showAlert(CV_FILE_TYPE_MESSAGE, "warning");
+      e.target.value = "";
+      return;
+    }
     setIsParsingCv(true);
     const formData = new FormData();
     formData.append("cv", file);
@@ -195,7 +210,7 @@ export default function DashboardLayout({
                   {isParsingCv ? "Уншиж байна..." : "AI CV Parse"}
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept={CV_ACCEPT}
                     className="hidden"
                     onChange={handleCvUpload}
                     disabled={isParsingCv}

@@ -46,6 +46,10 @@ export const API_URLS = {
     applyWithAutoCv: () => `${jobBase}/api/jobs/apply-with-auto-cv`,
     create: () => `${jobBase}/api/jobs/create`,
     detail: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
+    employerJobs: (employerId: number | string) => `${jobBase}/api/jobs/employer/${employerId}`,
+    update: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
+    updateStatus: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}/status`,
+    delete: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
     shareLink: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}/share-link`,
     recommendationsForCandidate: () =>
       `${jobBase}/api/jobs/recommendations/for-candidate`,

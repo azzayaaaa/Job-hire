@@ -606,11 +606,8 @@ app.post('/api/users/payment-orders', async (req, res) => {
   }
 
   const hasScreenshot = typeof screenshotUrl === 'string' && screenshotUrl.startsWith('data:image/');
-  if (!hasScreenshot) {
-    return res.status(400).json({ error: 'Гүйлгээний screenshot зураг оруулна уу' });
-  }
 
-  if (screenshotUrl.length > 8_000_000) {
+  if (hasScreenshot && screenshotUrl.length > 8_000_000) {
     return res.status(413).json({ error: 'Screenshot зураг хэт том байна' });
   }
 
@@ -640,7 +637,7 @@ app.post('/api/users/payment-orders', async (req, res) => {
           amountMnt: parsedAmount,
           plan: plan || pendingWithCode.plan || 'PRO_MONTHLY',
           duration: duration || pendingWithCode.duration || 'ONE_MONTH',
-          screenshotUrl,
+          ...(hasScreenshot ? { screenshotUrl } : {}),
           ...PAYMENT_BANK,
         },
         include: {
@@ -669,7 +666,7 @@ app.post('/api/users/payment-orders', async (req, res) => {
         amountMnt: parsedAmount,
         plan: plan || 'PRO_MONTHLY',
         duration: duration || 'ONE_MONTH',
-        screenshotUrl,
+        ...(hasScreenshot ? { screenshotUrl } : {}),
         ...PAYMENT_BANK,
       },
       include: {

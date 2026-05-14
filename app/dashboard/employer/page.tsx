@@ -27,10 +27,20 @@ import {
 import { useSession, signOut } from "next-auth/react";
 import { notFound, useSearchParams, useRouter } from "next/navigation";
 import { io } from "socket.io-client";
-import { authenticatedFetch, authenticatedPost, authenticatedDelete, resetAxiosClient } from "@/lib/axiosClient";
+import { authenticatedDelete, authenticatedFetch, authenticatedPatch, authenticatedPost, authenticatedPut, resetAxiosClient } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
 import { useAlert } from "@/components/AlertProvider";
 import { compressImageFile, safeSetLocalStorage } from "@/lib/imageStorage";
+
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+const IMAGE_FILE_TYPE_MESSAGE = "Зөвхөн JPG, JPEG, PNG, WEBP зураг оруулж болно.";
+
+const isAllowedImageFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_IMAGE_TYPES.has(file.type) || ALLOWED_IMAGE_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
 
 function hydrateEmployerImages(jobs: any[]) {
   if (typeof window === "undefined") return jobs;
@@ -73,6 +83,8 @@ function EmployerDashboardContent() {
   const searchParams = useSearchParams();
   const router       = useRouter();
   const tab          = searchParams.get("tab") || "jobs";
+  const sessionUserType = (session?.user as any)?.userType?.toUpperCase();
+  const isWrongDashboardRole = status === "authenticated" && sessionUserType && sessionUserType !== "EMPLOYER";
 
   const [jobs, setJobs]                   = useState<any[]>([]);
   const [applications, setApplications]   = useState<any[]>([]);
@@ -112,12 +124,15 @@ function EmployerDashboardContent() {
     jobType: "FULL_TIME", experience: "1-3",
   });
   const [jobImage, setJobImage] = useState("");
+  const [editingJob, setEditingJob] = useState<any>(null);
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
-  }, [status, router]);
+    if (sessionUserType === "ADMIN") router.replace("/dashboard/admin");
+    else if (sessionUserType === "CANDIDATE") router.replace("/dashboard/candidate");
+  }, [sessionUserType, status, router]);
 
   const fetchData = useCallback(async () => {
-    if (!session?.user) return;
+    if (!session?.user || isWrongDashboardRole) return;
     if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
 
@@ -125,10 +140,10 @@ function EmployerDashboardContent() {
       setLoading(true);
       const userId = Number((session.user as any).id);
       
-      // Fetch all jobs with retry logic for network errors
+      // Fetch this employer's jobs, including inactive ones.
       let allJobsRes;
       try {
-        allJobsRes = await authenticatedFetch(API_URLS.jobs.all());
+        allJobsRes = await authenticatedFetch(API_URLS.jobs.employerJobs(userId));
       } catch (jobsError: any) {
         if (jobsError?.code === 'ERR_NETWORK' || jobsError?.message === 'Network Error') {
           console.error("Job service unavailable - network error:", jobsError.message);
@@ -151,7 +166,7 @@ function EmployerDashboardContent() {
         conversationsData = [];
       }
       
-      const empJobs = hydrateEmployerImages(allJobsRes.data.filter((j: any) => Number(j.employerId) === userId));
+      const empJobs = hydrateEmployerImages(allJobsRes.data || []);
       setJobs(empJobs);
       setConversations(conversationsData);
 
@@ -204,9 +219,11 @@ function EmployerDashboardContent() {
       fetchInFlightRef.current = false;
       setLoading(false);
     }
-  }, [session, selectedJob, showAlert]);
+  }, [session, selectedJob, showAlert, isWrongDashboardRole]);
 
-  useEffect(() => { if (status === "authenticated") fetchData(); }, [session, status]);
+  useEffect(() => {
+    if (status === "authenticated") fetchData();
+  }, [fetchData, status]);
 
   const fetchProfileCompletion = useCallback(async () => {
     try {
@@ -237,6 +254,12 @@ function EmployerDashboardContent() {
       resetAxiosClient();
     }
   }, [status]);
+
+  useEffect(() => {
+    const openUpgrade = () => setShowUpgradePlan(true);
+    window.addEventListener("jobhub:open-upgrade-plan", openUpgrade);
+    return () => window.removeEventListener("jobhub:open-upgrade-plan", openUpgrade);
+  }, []);
 
   useEffect(() => {
     if (!session?.user) return;
@@ -335,7 +358,61 @@ function EmployerDashboardContent() {
       return;
     }
 
+    resetJobForm();
     setShowModal(true);
+  };
+
+  const resetJobForm = () => {
+    setEditingJob(null);
+    setJobImage("");
+    setJobForm({
+      title: "", description: "", requirements: "",
+      location: "Улаанбаатар", salary: "", category: "IT",
+      jobType: "FULL_TIME", experience: "1-3",
+    });
+  };
+
+  const openEditJob = (job: any) => {
+    setEditingJob(job);
+    setJobImage(job.image || "");
+    setJobForm({
+      title: job.title || "",
+      description: job.description || "",
+      requirements: job.requirements || "",
+      location: job.location || "Улаанбаатар",
+      salary: job.salary ? String(job.salary).replace(/[^\d]/g, "") : "",
+      category: job.category || "IT",
+      jobType: job.jobType || "FULL_TIME",
+      experience: job.experience || "1-3",
+    });
+    setShowModal(true);
+  };
+
+  const handleDeleteJob = async (job: any) => {
+    if (!window.confirm(`"${job.title}" ажлын зарыг устгах уу?`)) return;
+    try {
+      await authenticatedDelete(API_URLS.jobs.delete(job.id));
+      setJobs((prev) => prev.filter((item) => item.id !== job.id));
+      if (selectedJob?.id === job.id) setSelectedJob(null);
+      showAlert("Ажлын зар устлаа.", "success");
+    } catch (error) {
+      console.error("Failed to delete job:", error);
+      showAlert("Ажлын зар устгахад алдаа гарлаа.", "error");
+    }
+  };
+
+  const handleToggleJobStatus = async (job: any) => {
+    const nextStatus = job.status === "ACTIVE" ? "PAUSED" : "ACTIVE";
+    try {
+      const res = await authenticatedPatch(API_URLS.jobs.updateStatus(job.id), { status: nextStatus });
+      const updated = hydrateEmployerImages([res.data?.job || { ...job, status: nextStatus }])[0];
+      setJobs((prev) => prev.map((item) => item.id === job.id ? updated : item));
+      if (selectedJob?.id === job.id) setSelectedJob(updated);
+      showAlert(nextStatus === "ACTIVE" ? "Ажлын зар идэвхтэй боллоо." : "Ажлын зар идэвхгүй боллоо.", "success");
+    } catch (error) {
+      console.error("Failed to update job status:", error);
+      showAlert("Ажлын зарын төлөв солиход алдаа гарлаа.", "error");
+    }
   };
 
   useEffect(() => {
@@ -355,8 +432,8 @@ function EmployerDashboardContent() {
   const handleJobImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      showAlert("Зөвхөн зураг файл сонгоно уу.", "warning");
+    if (!isAllowedImageFile(file)) {
+      showAlert(IMAGE_FILE_TYPE_MESSAGE, "warning");
       e.target.value = "";
       return;
     }
@@ -378,13 +455,15 @@ function EmployerDashboardContent() {
       return;
     }
     try {
-      const created = await authenticatedPost(API_URLS.jobs.create(), {
-        ...jobForm, employerId: (session?.user as any).id, image: jobImage,
-      });
-      if (jobImage && created.data?.id) {
-        safeSetLocalStorage(`jobImage_${created.data.id}`, jobImage);
+      const payload = { ...jobForm, employerId: (session?.user as any).id, image: jobImage };
+      const saved = editingJob?.id
+        ? await authenticatedPut(API_URLS.jobs.update(editingJob.id), payload)
+        : await authenticatedPost(API_URLS.jobs.create(), payload);
+      if (jobImage && saved.data?.id) {
+        safeSetLocalStorage(`jobImage_${saved.data.id}`, jobImage);
       }
       setShowModal(false);
+      setEditingJob(null);
       setJobImage("");
       setJobForm({
         title: "", description: "", requirements: "",
@@ -392,6 +471,7 @@ function EmployerDashboardContent() {
         jobType: "FULL_TIME", experience: "1-3",
       });
       fetchData();
+      showAlert(editingJob?.id ? "Ажлын зар шинэчлэгдлээ." : "Ажлын зар нийтлэгдлээ.", "success");
     } catch (error: unknown) {
       if ((error as { response?: { status?: number; data?: { code?: string } } })?.response?.status === 402) {
         showAlert("Free employer plan-аар 2 ажлын зар нийтэлж болно. Pro plan руу ахиулна уу.", "warning");
@@ -441,7 +521,7 @@ function EmployerDashboardContent() {
     finally { setProcessingApplicationId(null); }
   };
 
-  if (status === "loading") return (
+  if (status === "loading" || isWrongDashboardRole) return (
     <div className="h-screen flex items-center justify-center bg-[#050810]">
       <Loader2 className="animate-spin text-[#4F67FF]" size={32} />
     </div>
@@ -597,7 +677,14 @@ function EmployerDashboardContent() {
               )}
               {tab === "jobs" && (
                 <>
-                  <JobsView jobs={jobs} applications={applications} onSelectJob={setSelectedJob} />
+                  <JobsView
+                    jobs={jobs}
+                    applications={applications}
+                    onSelectJob={setSelectedJob}
+                    onEditJob={openEditJob}
+                    onDeleteJob={handleDeleteJob}
+                    onToggleJobStatus={handleToggleJobStatus}
+                  />
                   {selectedJob?.id && (
                     <CandidateRecommendations
                       jobId={selectedJob.id}
@@ -664,8 +751,8 @@ function EmployerDashboardContent() {
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <form onSubmit={handleSubmit} className="max-h-[92vh] w-full max-w-lg overflow-y-auto bg-[#0d1426] rounded-2xl border border-white/10 p-4 sm:p-6 space-y-3 shadow-2xl">
             <div className="flex justify-between items-center mb-1">
-              <h3 className="text-[16px] font-black text-white">Шинэ зар нэмэх</h3>
-              <button type="button" onClick={() => setShowModal(false)} className="text-white/40 hover:text-white transition-colors"><X size={20} /></button>
+              <h3 className="text-[16px] font-black text-white">{editingJob?.id ? "Ажлын зар засах" : "Шинэ зар нэмэх"}</h3>
+              <button type="button" onClick={() => { setShowModal(false); resetJobForm(); }} className="text-white/40 hover:text-white transition-colors"><X size={20} /></button>
             </div>
             <input value={jobForm.title} onChange={e => setJobForm({ ...jobForm, title: e.target.value })} className="w-full bg-[#111827] border border-white/[0.08] rounded-xl p-3.5 text-[12px] text-white outline-none focus:border-[#4F67FF]/50 placeholder:text-white/25" placeholder="Ажлын нэр" required />
             <div className="rounded-xl border border-white/[0.08] bg-[#111827] p-3">
@@ -692,7 +779,7 @@ function EmployerDashboardContent() {
                     Зураг сонгох
                   </button>
                 </div>
-                <input id="jobImageInput" type="file" accept="image/*" className="hidden" onChange={handleJobImage} />
+                <input id="jobImageInput" type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={handleJobImage} />
               </div>
             </div>
             <div>
@@ -733,7 +820,9 @@ function EmployerDashboardContent() {
             </div>
             <textarea value={jobForm.requirements} onChange={e => setJobForm({ ...jobForm, requirements: e.target.value })} className="w-full bg-[#111827] border border-white/[0.08] rounded-xl p-3.5 text-[12px] text-white outline-none focus:border-[#4F67FF]/50 placeholder:text-white/25 resize-none" placeholder="Тавигдах шаардлага" rows={2} required />
             <textarea value={jobForm.description} onChange={e => setJobForm({ ...jobForm, description: e.target.value })} className="w-full bg-[#111827] border border-white/[0.08] rounded-xl p-3.5 text-[12px] text-white outline-none focus:border-[#4F67FF]/50 placeholder:text-white/25 resize-none" placeholder="Тайлбар" rows={3} required />
-            <button type="submit" className="w-full bg-[#4F67FF] hover:bg-[#3d52e0] text-white py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all">Нийтлэх</button>
+            <button type="submit" className="w-full bg-[#4F67FF] hover:bg-[#3d52e0] text-white py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all">
+              {editingJob?.id ? "Хадгалах" : "Нийтлэх"}
+            </button>
           </form>
         </div>
       )}

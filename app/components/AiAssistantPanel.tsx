@@ -5,6 +5,7 @@ import {
   Briefcase,
   Download,
   Eye,
+  Gem,
   MessageCircle,
   Printer,
   Send,
@@ -1367,12 +1368,12 @@ export default function AiAssistantPanel({
                 {msg.showUpgradeButton && (
                   <button
                     onClick={() => {
-                      // Open upgrade/settings modal
-                      window.location.href = "/dashboard/settings";
+                      window.dispatchEvent(new CustomEvent("jobhub:open-upgrade-plan"));
                     }}
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-3 py-2 text-[11px] font-bold text-white hover:from-purple-700 hover:to-pink-700 transition"
                   >
-                    💎 Pro болон хэрэглэгч нэмэх
+                    <Gem size={14} />
+                    Pro болон хэрэглэгч нэмэх
                   </button>
                 )}
                 {msg.todoSuggestion && (

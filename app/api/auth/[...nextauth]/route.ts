@@ -2,16 +2,23 @@ import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { cookies } from "next/headers";
+import dns from "dns";
+
+dns.setDefaultResultOrder("ipv4first");
 
 const authServiceUrl =
   process.env.AUTH_SERVICE_URL?.replace(/\/$/, "") ||
-  "http://localhost:5001";
+  "http://127.0.0.1:5001";
 
 const handler = NextAuth({
   providers: [
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      idToken: true,
+      httpOptions: {
+        timeout: 10000,
+      },
     }),
     CredentialsProvider({
       name: "Credentials",
@@ -48,6 +55,7 @@ const handler = NextAuth({
   callbacks: {
     signIn: async ({ user, account }) => {
       if (account?.provider === "google") {
+        const startedAt = Date.now();
         try {
           console.log(`[NextAuth] Google sign-in attempt for: ${user.email}`);
           
@@ -69,16 +77,21 @@ const handler = NextAuth({
             cookieStore.delete("pendingUserType");
           } catch {}
 
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10000);
+
           const res = await fetch(`${authServiceUrl}/api/auth/google-login`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
             body: JSON.stringify({
               email: user.email,
               name: user.name,
               image: user.image,
               ...(normalizedUserType ? { userType: normalizedUserType } : {}),
             }),
-          });
+          }).finally(() => clearTimeout(timeout));
+          console.log(`[NextAuth] Auth service google-login took ${Date.now() - startedAt}ms`);
 
           if (!res.ok) {
             const errorData = await res.json();
@@ -87,7 +100,7 @@ const handler = NextAuth({
           }
 
           const data = await res.json();
-          console.log("[NextAuth] Google Auth Success:", data.user.email);
+          console.log(`[NextAuth] Google Auth Success: ${data.user.email} in ${Date.now() - startedAt}ms`);
 
           if (user.email === "azzayabayartai07@gmail.com") {
             (user as any).userType = "ADMIN";

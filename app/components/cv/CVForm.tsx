@@ -6,6 +6,16 @@ import { API_URLS } from '@/lib/apiConfig';
 import { authenticatedPost } from '@/lib/axiosClient';
 import { useAlert } from '@/components/AlertProvider';
 
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
+const IMAGE_ACCEPT = '.jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp';
+const IMAGE_FILE_TYPE_MESSAGE = 'Зөвхөн JPG, JPEG, PNG, WEBP зураг оруулж болно.';
+
+const isAllowedImageFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_IMAGE_TYPES.has(file.type) || ALLOWED_IMAGE_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
+
 interface PersonalInfo {
   name: string;
   email: string;
@@ -107,8 +117,10 @@ export default function CVForm({ onCVGenerated, userId }: CVFormProps) {
     if (!file) return;
 
     // Validate file type
-    if (!['image/jpeg', 'image/png'].includes(file.type)) {
-      setPhotoError('JPG эсвэл PNG зургийг л сонгоно уу');
+    if (!isAllowedImageFile(file)) {
+      setPhotoError(IMAGE_FILE_TYPE_MESSAGE);
+      showAlert(IMAGE_FILE_TYPE_MESSAGE, 'warning');
+      e.target.value = '';
       return;
     }
 
@@ -459,10 +471,10 @@ export default function CVForm({ onCVGenerated, userId }: CVFormProps) {
               <label className="flex flex-col items-center cursor-pointer">
                 <Upload size={48} className="text-gray-400 mb-3" />
                 <span className="text-gray-800 font-semibold text-lg">Профайлын зургийг сонгоно уу</span>
-                <span className="text-sm text-gray-500 mt-1">JPG эсвэл PNG (5MB хүртэл)</span>
+                <span className="text-sm text-gray-500 mt-1">JPG, PNG, WEBP (5MB хүртэл)</span>
                 <input
                   type="file"
-                  accept="image/jpeg,image/png"
+                  accept={IMAGE_ACCEPT}
                   onChange={handlePhotoUpload}
                   className="hidden"
                 />

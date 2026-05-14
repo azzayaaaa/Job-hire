@@ -219,24 +219,26 @@ export const googleLogin = async (req: Request, res: Response) => {
       const existingUser = existingRes.data;
       const shouldForceAdmin = email === "azzayabayartai07@gmail.com";
 
-      await axios.post(`${USER_SERVICE_URL}/update-profile`, {
+      axios.post(`${USER_SERVICE_URL}/update-profile`, {
         id: existingUser.id,
         fullName: name ?? undefined,
         image: image ?? undefined
+      }).catch((error: any) => {
+        console.warn("[Auth Service] Google profile background update failed:", {
+          userId: existingUser.id,
+          message: error?.message,
+          status: error?.response?.status,
+        });
       });
 
+      let user = existingUser;
       if (shouldForceAdmin && existingUser.userType !== "ADMIN") {
         await axios.post(`${USER_SERVICE_URL}/admin/update-role`, {
           userId: existingUser.id,
           userType: "ADMIN",
         });
+        user = { ...existingUser, userType: "ADMIN" };
       }
-
-      const refreshedRes = await axios.get(
-        `${USER_SERVICE_URL}/profile/${existingUser.id}`
-      );
-
-      const user = refreshedRes.data;
 
       const token = jwt.sign(
         { id: user.id, email: user.email, userType: user.userType },

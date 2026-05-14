@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Check, Copy, Crown, ImagePlus, Loader2, Sparkles, X } from "lucide-react";
+import Image from "next/image";
+import { AlertTriangle, Check, Copy, Crown, ImagePlus, Loader2, Sparkles, X } from "lucide-react";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
 import { useAlert } from "@/components/AlertProvider";
@@ -29,8 +30,20 @@ type PlanInfo = {
   };
 };
 
-function createLocalTransactionCode() {
-  return `JOB${Math.floor(Math.random() * 900) + 100}`;
+function createFallbackTransactionCode(userId: number | string) {
+  const normalizedUserId = String(userId).replace(/\D/g, "").slice(-4).padStart(4, "0");
+  const random = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `JOB${normalizedUserId}${random}`;
+}
+
+function getStoredTransactionCode(userId: number | string) {
+  if (typeof window === "undefined") return "";
+  const key = `jobhubPaymentCode_${userId}`;
+  const saved = window.localStorage.getItem(key);
+  if (saved && /^JOB[A-Z0-9]{3,12}$/.test(saved)) return saved;
+  const next = createFallbackTransactionCode(userId);
+  window.localStorage.setItem(key, next);
+  return next;
 }
 
 function getRemainingDays(expiresAt?: string | null) {
@@ -76,7 +89,9 @@ export default function UpgradePlanModal({ userId, role, onClose }: UpgradePlanM
   const [screenshot, setScreenshot] = useState("");
   const [screenshotName, setScreenshotName] = useState("");
   const [lastOrderId, setLastOrderId] = useState("");
-  const [transactionCode, setTransactionCode] = useState(() => createLocalTransactionCode());
+  const [transactionCode, setTransactionCode] = useState(() => getStoredTransactionCode(userId));
+  const [paymentOrderLoading, setPaymentOrderLoading] = useState(false);
+  const [paymentOrderAttempted, setPaymentOrderAttempted] = useState(false);
 
   const priceMnt = plan?.priceMnt || 10000;
   const isPro = plan?.proActive === true;
@@ -110,6 +125,40 @@ export default function UpgradePlanModal({ userId, role, onClose }: UpgradePlanM
       active = false;
     };
   }, [userId]);
+
+  useEffect(() => {
+    if (isPro || loading || transactionCode || paymentOrderLoading || paymentOrderAttempted) return;
+    let active = true;
+
+    const createPaymentCode = async () => {
+      setPaymentOrderLoading(true);
+      setPaymentOrderAttempted(true);
+      try {
+        const res = await authenticatedPost(API_URLS.user.createPaymentOrder(), {
+          userId,
+          amountMnt: priceMnt,
+          plan: "PRO_MONTHLY",
+          duration: "ONE_MONTH",
+        });
+        if (!active) return;
+        setLastOrderId(res.data?.order?.orderId || "");
+        setTransactionCode(res.data?.order?.transactionCode || getStoredTransactionCode(userId));
+      } catch (error) {
+        console.warn("Failed to create payment order:", error);
+        if (active) {
+          setTransactionCode(getStoredTransactionCode(userId));
+          showAlert("Гүйлгээний утга түр local-оор үүслээ. Screenshot илгээхэд энэ кодоор бүртгэнэ.", "warning");
+        }
+      } finally {
+        if (active) setPaymentOrderLoading(false);
+      }
+    };
+
+    createPaymentCode();
+    return () => {
+      active = false;
+    };
+  }, [isPro, loading, paymentOrderAttempted, paymentOrderLoading, priceMnt, showAlert, transactionCode, userId]);
 
   const handleScreenshot = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -354,7 +403,7 @@ export default function UpgradePlanModal({ userId, role, onClose }: UpgradePlanM
                       <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-300">Гүйлгээний утга</p>
                       <div className="mt-2 flex items-center gap-2">
                         <p className="flex-1 text-2xl font-black text-white tracking-wider">
-                          {transactionCode || "---"}
+                          {paymentOrderLoading ? "Үүсгэж байна..." : transactionCode || "---"}
                         </p>
                         {transactionCode && (
                           <button
@@ -369,6 +418,33 @@ export default function UpgradePlanModal({ userId, role, onClose }: UpgradePlanM
                       </div>
                       <p className="mt-2 text-xs text-blue-100/65">
                         Банкны апп руу шилжүүлэхдээ энэ кодыг гүйлгээний утгаар бичнэ үү
+                      </p>
+                      <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-red-100">
+                        <AlertTriangle size={16} className="mt-0.5 shrink-0 text-red-300" />
+                        <p className="text-xs font-bold leading-5">
+                          Гүйлгээний утга өөрчилж бичээгүй эсвэл буруу бичсэн төлбөр автоматаар ялгагдахгүй тул Pro эрх сэргээхгүй.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-white/15 bg-white/10 p-4">
+                  <div className="grid gap-4 sm:grid-cols-[180px_1fr] sm:items-center">
+                    <div className="rounded-2xl bg-white p-2">
+                      <Image
+                        src="/payment-qr.jpg"
+                        alt="TDB төлбөрийн QR"
+                        width={360}
+                        height={360}
+                        className="h-auto w-full rounded-xl"
+                        priority
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-white">Банкны апп руугаа энэ QR кодыг уншуулаарай.</p>
+                      <p className="mt-2 text-xs leading-5 text-blue-100/70">
+                        QR уншуулсны дараа гүйлгээний утга хэсгийг заавал <span className="font-black text-emerald-200">{transactionCode || "JOB..."}</span> болгож өөрчилнө.
                       </p>
                     </div>
                   </div>
@@ -413,7 +489,7 @@ export default function UpgradePlanModal({ userId, role, onClose }: UpgradePlanM
                   <button
                     type="button"
                     onClick={handlePaymentRequest}
-                    disabled={submitting || plan?.proActive || !screenshot}
+                    disabled={submitting || plan?.proActive || !transactionCode}
                     className="inline-flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-white px-6 py-4 text-base font-black text-[#17306f] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:bg-white/20 disabled:text-white/55"
                   >
                     <Sparkles size={18} />

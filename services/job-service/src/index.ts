@@ -100,7 +100,7 @@ const corsOptions = {
     callback(null, origin ?? 'http://localhost:3000');
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200,
 };
@@ -334,7 +334,7 @@ app.post('/api/jobs/create', async (req, res) => {
 
     if (!proActive) {
       const freeEmployerJobCount = await prisma.job.count({
-        where: { employerId: normalizedEmployerId },
+        where: { employerId: normalizedEmployerId, status: { not: 'DELETED' } },
       });
 
       if (freeEmployerJobCount >= 2) {
@@ -405,6 +405,113 @@ app.post('/api/jobs/create', async (req, res) => {
     res.status(500).json({ error: "Ажил хадгалах үед алдаа гарлаа" });
   }
 });
+
+app.get('/api/jobs/employer/:employerId', async (req, res) => {
+  const employerId = Number(req.params.employerId);
+  if (!Number.isInteger(employerId)) {
+    return res.status(400).json({ error: 'Invalid employer ID' });
+  }
+
+  try {
+    const jobs = await prisma.job.findMany({
+      where: {
+        employerId,
+        status: { not: 'DELETED' },
+      },
+      include: {
+        employer: {
+          select: { id: true, email: true, fullName: true, phone: true, logo: true },
+        },
+        applications: {
+          select: {
+            id: true,
+            jobId: true,
+            candidateId: true,
+            status: true,
+            matchScore: true,
+            feedback: true,
+            createdAt: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json(jobs.map((job) => normalizeJobForClient(job)));
+  } catch (error: any) {
+    console.error('[Job Service] Error fetching employer jobs:', error);
+    res.status(500).json({ error: 'Failed to fetch employer jobs', details: error.message });
+  }
+});
+
+app.put('/api/jobs/:jobId', async (req, res) => {
+  const jobId = Number(req.params.jobId);
+  if (!Number.isInteger(jobId)) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+
+  const { title, description, requirements, location, salary, category, jobType, experience, image } = req.body;
+
+  try {
+    const experienceMarker = `[EXPERIENCE:${experience || '1-3'}]`;
+    const updated = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        title,
+        description,
+        requirements: `${experienceMarker}\n${requirements || ''}`,
+        location,
+        salary,
+        category,
+        jobType,
+        image: image || null,
+      },
+    });
+
+    res.json(normalizeJobForClient(updated));
+  } catch (error: any) {
+    console.error('[Job Service] Error updating job:', error);
+    res.status(500).json({ error: 'Failed to update job', details: error.message });
+  }
+});
+
+app.patch('/api/jobs/:jobId/status', async (req, res) => {
+  const jobId = Number(req.params.jobId);
+  const status = String(req.body?.status || '').toUpperCase();
+  if (!Number.isInteger(jobId) || !['ACTIVE', 'PAUSED', 'CLOSED'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid job ID or status' });
+  }
+
+  try {
+    const updated = await prisma.job.update({
+      where: { id: jobId },
+      data: { status },
+    });
+    res.json({ success: true, job: normalizeJobForClient(updated) });
+  } catch (error: any) {
+    console.error('[Job Service] Error updating job status:', error);
+    res.status(500).json({ error: 'Failed to update job status', details: error.message });
+  }
+});
+
+app.delete('/api/jobs/:jobId', async (req, res) => {
+  const jobId = Number(req.params.jobId);
+  if (!Number.isInteger(jobId)) {
+    return res.status(400).json({ error: 'Invalid job ID' });
+  }
+
+  try {
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { status: 'DELETED' },
+    });
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('[Job Service] Error deleting job:', error);
+    res.status(500).json({ error: 'Failed to delete job', details: error.message });
+  }
+});
+
 app.post('/api/jobs/apply', async (req, res) => {
   const { jobId, candidateId, cvText, cvFileName } = req.body;
   console.log(`[Job Service] POST /api/jobs/apply - Candidate ${candidateId} applying for job ${jobId}`);
@@ -1282,7 +1389,7 @@ app.post('/api/jobs/recommendations/candidates-for-job', async (req, res) => {
           jobRequirements: job.requirements,
           candidates: candidatesWithReadableProfile
         },
-        { timeout: 30000 }
+        { timeout: 5000 }
       );
 
       const matches = aiResponse.data?.matches || [];

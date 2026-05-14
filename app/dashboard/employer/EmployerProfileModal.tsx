@@ -1,9 +1,19 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { X, Mail, Phone, Globe, MapPin, Building2, FileText, ImagePlus } from "lucide-react";
+import { X, Mail, Phone, Globe, MapPin, Building2, FileText, ImagePlus, Lightbulb } from "lucide-react";
 import { authenticatedFetch, authenticatedPost } from "@/lib/axiosClient";
 import { compressImageDataUrl, compressImageFile, safeSetLocalStorage } from "@/lib/imageStorage";
 import { useAlert } from "@/components/AlertProvider";
+
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+const IMAGE_FILE_TYPE_MESSAGE = "Зөвхөн JPG, JPEG, PNG, WEBP зураг оруулж болно.";
+
+const isAllowedImageFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_IMAGE_TYPES.has(file.type) || ALLOWED_IMAGE_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
 
 export default function EmployerProfileModal({
   userId,
@@ -24,7 +34,6 @@ export default function EmployerProfileModal({
     logo: "",
   });
   const [loading, setLoading] = useState(false);
-  const [saved, setSaved] = useState(false);
   const { showAlert } = useAlert();
 
   const loadProfileData = useCallback(async () => {
@@ -68,7 +77,6 @@ export default function EmployerProfileModal({
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
-    setSaved(false);
   };
 
   useEffect(() => {
@@ -78,8 +86,8 @@ export default function EmployerProfileModal({
   const handleLogo = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      showAlert("Зөвхөн зураг файл сонгоно уу.", "warning");
+    if (!isAllowedImageFile(file)) {
+      showAlert(IMAGE_FILE_TYPE_MESSAGE, "warning");
       e.target.value = "";
       return;
     }
@@ -87,7 +95,6 @@ export default function EmployerProfileModal({
     try {
       const logo = await compressImageFile(file, { maxWidth: 700, maxHeight: 700, quality: 0.78 });
       setFormData((prev) => ({ ...prev, logo }));
-      setSaved(false);
     } catch {
       showAlert("Зураг боловсруулахад алдаа гарлаа.", "error");
       e.target.value = "";
@@ -135,8 +142,7 @@ export default function EmployerProfileModal({
         console.warn("Backend save partial failure (local data saved):", backendError);
       }
       
-      setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      showAlert("Профайл амжилттай хадгалагдлаа.", "success");
       onSaved?.();
     } catch (error) {
       console.error("Profile save error:", error);
@@ -223,7 +229,7 @@ export default function EmployerProfileModal({
                   Зураг сонгох
                 </button>
               </div>
-              <input id="companyLogoInput" type="file" accept="image/*" className="hidden" onChange={handleLogo} />
+              <input id="companyLogoInput" type="file" accept={IMAGE_ACCEPT} className="hidden" onChange={handleLogo} />
             </div>
           </div>
           {/* Company Name */}
@@ -329,9 +335,10 @@ export default function EmployerProfileModal({
           </div>
 
           {/* Info message */}
-          <div className="bg-[#1a2035] border border-[#1e2535] rounded-xl p-4">
+          <div className="flex gap-3 bg-[#1a2035] border border-[#1e2535] rounded-xl p-4">
+            <Lightbulb size={16} className="shrink-0 text-[#4c6ef5]" />
             <p className="text-xs text-gray-400">
-              💡 Энэ мэдээлэл бүх нийтлэгдсэн ажлын зарт кандидатуудад харагдана. Компанийн сайн түсэл үлгүүлэх мэдээлэл оруулна уу.
+              Энэ мэдээлэл бүх нийтлэгдсэн ажлын зарт кандидатуудад харагдана. Компанийн сайн төрх үлдээх мэдээлэл оруулна уу.
             </p>
           </div>
 
@@ -352,12 +359,6 @@ export default function EmployerProfileModal({
             </button>
           </div>
 
-          {/* Success message */}
-          {saved && (
-            <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-3">
-              <p className="text-xs text-green-400">✓ Профайл амжилттай хадгалагдлаа</p>
-            </div>
-          )}
         </div>
       </div>
     </div>

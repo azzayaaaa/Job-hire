@@ -176,7 +176,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
   // эхний render дээр 'mn' хэвээр үлдээх нь зөв.
 
   return (
-    <SessionProvider>
+    <SessionProvider refetchOnWindowFocus={false} refetchInterval={0}>
       <AlertProvider>
         <LanguageContext.Provider value={{ lang, changeLang, t }}>
           <ThemeContext.Provider value={{ theme, toggleTheme }}>

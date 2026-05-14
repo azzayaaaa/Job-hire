@@ -8,12 +8,15 @@ import {
   Check,
   Code2,
   Copy,
+  Edit3,
   Eye,
   Laptop,
   MapPin,
   MoreHorizontal,
   Palette,
+  Power,
   Server,
+  Trash2,
   Users,
 } from "lucide-react";
 import { API_URLS } from "@/lib/apiConfig";
@@ -73,8 +76,16 @@ function statusSummary(status?: string) {
   return "Идэвхтэй зар";
 }
 
-export default function JobsView({ jobs, applications, onSelectJob }: any) {
+export default function JobsView({
+  jobs,
+  applications,
+  onSelectJob,
+  onEditJob,
+  onDeleteJob,
+  onToggleJobStatus,
+}: any) {
   const [copiedJobId, setCopiedJobId] = useState<number | null>(null);
+  const [openMenuJobId, setOpenMenuJobId] = useState<number | null>(null);
   const [shareToast, setShareToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
 
   const handleShareJob = async (e: React.MouseEvent, jobId: number) => {
@@ -110,6 +121,46 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
     }
   };
 
+  const handleMenuClick = (e: React.MouseEvent, jobId: number) => {
+    e.stopPropagation();
+    setOpenMenuJobId((current) => (current === jobId ? null : jobId));
+  };
+
+  const runAction = (e: React.MouseEvent, action: () => void) => {
+    e.stopPropagation();
+    setOpenMenuJobId(null);
+    action();
+  };
+
+  const renderMenu = (job: any) => (
+    <div className="absolute right-0 top-8 z-30 w-44 overflow-hidden rounded-xl border border-white/10 bg-[#0b1120] shadow-2xl">
+      <button
+        type="button"
+        onClick={(e) => runAction(e, () => onEditJob?.(job))}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold text-white/80 hover:bg-white/[0.06]"
+      >
+        <Edit3 size={13} />
+        Засах
+      </button>
+      <button
+        type="button"
+        onClick={(e) => runAction(e, () => onToggleJobStatus?.(job))}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold text-white/80 hover:bg-white/[0.06]"
+      >
+        <Power size={13} />
+        {job.status === "ACTIVE" ? "Идэвхгүй болгох" : "Идэвхтэй болгох"}
+      </button>
+      <button
+        type="button"
+        onClick={(e) => runAction(e, () => onDeleteJob?.(job))}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-semibold text-red-300 hover:bg-red-500/10"
+      >
+        <Trash2 size={13} />
+        Устгах
+      </button>
+    </div>
+  );
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -133,7 +184,7 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
 
       {/* Jobs Grid */}
       {jobs.length > 0 ? (
-        <div className="bg-[#111827] rounded-2xl border border-white/[0.06] overflow-hidden">
+        <div className="bg-[#111827] rounded-2xl border border-white/[0.06] overflow-visible">
           <div className="grid gap-3 p-3 md:hidden">
             {jobs.map((job: any) => (
               <div
@@ -173,9 +224,16 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
                       </p>
                     </div>
                   </div>
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/[0.08] text-white/35">
-                    <MoreHorizontal size={14} />
-                  </span>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={(e) => handleMenuClick(e, job.id)}
+                      className="grid h-7 w-7 shrink-0 place-items-center rounded-lg border border-white/[0.08] text-white/35 hover:text-white"
+                    >
+                      <MoreHorizontal size={14} />
+                    </button>
+                    {openMenuJobId === job.id && renderMenu(job)}
+                  </div>
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[10px] text-white/45">
@@ -285,9 +343,16 @@ export default function JobsView({ jobs, applications, onSelectJob }: any) {
                           <Copy size={13} />
                         )}
                       </button>
-                      <button className="w-7 h-7 rounded-lg border border-white/[0.08] flex items-center justify-center text-white/35 hover:text-white hover:border-white/20 transition-all">
-                        <MoreHorizontal size={13} />
-                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => handleMenuClick(e, job.id)}
+                          className="w-7 h-7 rounded-lg border border-white/[0.08] flex items-center justify-center text-white/35 hover:text-white hover:border-white/20 transition-all"
+                        >
+                          <MoreHorizontal size={13} />
+                        </button>
+                        {openMenuJobId === job.id && renderMenu(job)}
+                      </div>
                     </div>
                   </td>
                 </tr>

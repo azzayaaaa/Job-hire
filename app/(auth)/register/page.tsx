@@ -153,7 +153,7 @@ export default function RegisterPage() {
                   </button>
                   <button onClick={() => setUserType("employer")} className={`flex items-center justify-center gap-2 p-3 rounded-2xl border transition-all ${userType === "employer" ? "bg-[#10B981]/10 border-[#10B981] text-[#10B981]" : "bg-[#111827] border-white/5 text-[#374151]"}`}>
                     <Briefcase size={16} />
-                    <span className="text-[10px] font-black uppercase tracking-widest">Олгогч</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest">Ажил олгогч</span>
                   </button>
                 </div>
 
@@ -186,7 +186,10 @@ export default function RegisterPage() {
                   </div>
                   <button 
                     type="button" 
+                    disabled={isLoading}
                     onClick={() => {
+                      setIsLoading(true);
+                      window.localStorage.removeItem("postLoginRedirect");
                       document.cookie = `pendingUserType=${userType.toUpperCase()}; path=/; max-age=300; SameSite=Lax`;
                       signIn(
                         "google",
@@ -194,9 +197,9 @@ export default function RegisterPage() {
                         { prompt: "select_account" },
                       );
                     }}
-                    className="w-full bg-white/5 border border-white/5 rounded-2xl py-3.5 flex items-center justify-center gap-3 hover:bg-white/10 transition-all group"
+                    className="w-full bg-white/5 border border-white/5 rounded-2xl py-3.5 flex items-center justify-center gap-3 hover:bg-white/10 transition-all group disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    <Image src="/google.png" alt="Google" width={20} height={20} className="w-4 h-auto group-hover:scale-110 transition-transform" />
+                    <Image src="/google.png" alt="Google" width={20} height={20} loading="eager" className="w-4 h-auto group-hover:scale-110 transition-transform" />
                     <span className="text-white text-[10px] font-black uppercase tracking-widest">Google-ээр үргэлжлүүлэх</span>
                   </button>
                 </div>

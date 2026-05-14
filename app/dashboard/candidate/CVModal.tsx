@@ -29,6 +29,16 @@ const getErrorStatus = (error: unknown) =>
 const isFileDataUrl = (value: string) =>
   /^data:(application\/pdf|image\/)/i.test(value);
 
+const ALLOWED_CV_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_CV_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+const CV_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp";
+const CV_FILE_TYPE_MESSAGE = "Зөвхөн PDF, JPG, JPEG, PNG, WEBP файл оруулж болно.";
+
+const isAllowedCVFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_CV_TYPES.has(file.type) || ALLOWED_CV_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
+
 const dataUrlToFile = async (dataUrl: string, fileName: string) => {
   const response = await fetch(dataUrl);
   const blob = await response.blob();
@@ -61,6 +71,13 @@ export default function CVModal({
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (!isAllowedCVFile(file)) {
+      showAlert(CV_FILE_TYPE_MESSAGE, "warning");
+      e.target.value = "";
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = (ev) => {
       setCvName(file.name);
@@ -232,11 +249,11 @@ export default function CVModal({
                 ) : (
                   <>
                     <p className="text-sm text-white font-medium mb-1">PDF эсвэл зураг сонгоно уу</p>
-                    <p className="text-xs text-gray-500">PDF, JPG, PNG дэмжинэ</p>
+                    <p className="text-xs text-gray-500">PDF, JPG, JPEG, PNG, WEBP дэмжинэ</p>
                   </>
                 )}
               </div>
-              <input id="cvInput" type="file" accept=".pdf,image/*" className="hidden" onChange={handleFile} />
+              <input id="cvInput" type="file" accept={CV_ACCEPT} className="hidden" onChange={handleFile} />
 
               <button
                 onClick={() => setShowAIGenerator(true)}

@@ -1,11 +1,40 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { getSession } from 'next-auth/react';
+import type { Session } from 'next-auth';
+
+type SessionWithToken = Session & {
+  user?: Session['user'] & {
+    accessToken?: string;
+  };
+};
 
 /**
  * Authenticated Axios instance with JWT token interceptor
  * Automatically injects Authorization header from NextAuth session
  */
 let axiosInstance: AxiosInstance | null = null;
+let sessionCache: { value: Session | null; expiresAt: number } | null = null;
+let sessionPromise: Promise<Session | null> | null = null;
+
+const getCachedSession = async (): Promise<Session | null> => {
+  const now = Date.now();
+  if (sessionCache && sessionCache.expiresAt > now) {
+    return sessionCache.value;
+  }
+
+  if (!sessionPromise) {
+    sessionPromise = getSession()
+      .then((session) => {
+        sessionCache = { value: session, expiresAt: Date.now() + 60_000 };
+        return session;
+      })
+      .finally(() => {
+        sessionPromise = null;
+      });
+  }
+
+  return sessionPromise;
+};
 
 export const getAxiosClient = (): AxiosInstance => {
   if (axiosInstance) {
@@ -25,14 +54,13 @@ export const getAxiosClient = (): AxiosInstance => {
     async (config) => {
       try {
         // Use a timeout for getSession to prevent hanging requests
-        const sessionPromise = getSession();
-        const timeoutPromise = new Promise((_, reject) =>
+        const timeoutPromise = new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error('Session fetch timeout')), 3000)
         );
         
-        const session = (await Promise.race([sessionPromise, timeoutPromise])) as any;
+        const session = (await Promise.race([getCachedSession(), timeoutPromise])) as SessionWithToken | null;
         if (session?.user) {
-          const accessToken = (session.user as any).accessToken;
+          const accessToken = session.user.accessToken;
           if (accessToken) {
             config.headers.Authorization = `Bearer ${accessToken}`;
           }
@@ -206,4 +234,6 @@ export const authenticatedDelete = async (
 // Reset instance when session changes (for logout)
 export const resetAxiosClient = () => {
   axiosInstance = null;
+  sessionCache = null;
+  sessionPromise = null;
 };

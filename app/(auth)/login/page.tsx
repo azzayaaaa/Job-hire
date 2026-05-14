@@ -118,7 +118,11 @@ function LoginPageContent() {
 
   const getOAuthCallbackUrl = () => {
     if (typeof window === "undefined") return "/dashboard";
-    return searchParams.get("callbackUrl") || window.localStorage.getItem("postLoginRedirect") || "/dashboard";
+    const callbackUrl = searchParams.get("callbackUrl");
+    if (callbackUrl && !callbackUrl.includes("/dashboard/candidate")) {
+      return callbackUrl;
+    }
+    return "/dashboard";
   };
 
   const handleForgotPassword = async () => {
@@ -375,20 +379,24 @@ function LoginPageContent() {
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
+                    disabled={loading}
+                    onClick={() => {
+                      setLoading(true);
+                      window.localStorage.removeItem("postLoginRedirect");
                       signIn(
                         "google",
                         { callbackUrl: getOAuthCallbackUrl() },
                         { prompt: "select_account" },
-                      )
-                    }
-                    className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/5 bg-white/5 py-3.5 transition-all hover:bg-white/10"
+                      );
+                    }}
+                    className="group flex w-full items-center justify-center gap-3 rounded-2xl border border-white/5 bg-white/5 py-3.5 transition-all hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Image
                       src="/google.png"
                       alt="Google"
                       width={20}
                       height={20}
+                      loading="eager"
                       className="h-auto w-4 transition-transform group-hover:scale-110"
                     />
                     <span className="text-[10px] font-black tracking-widest text-white uppercase">

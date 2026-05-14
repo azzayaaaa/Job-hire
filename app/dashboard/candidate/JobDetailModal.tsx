@@ -50,6 +50,16 @@ type MatchAnalysis = {
   recommendation?: string;
 };
 
+const ALLOWED_CV_TYPES = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_CV_EXTENSIONS = [".pdf", ".jpg", ".jpeg", ".png", ".webp"];
+const CV_ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp";
+const CV_FILE_TYPE_MESSAGE = "Зөвхөн PDF, JPG, JPEG, PNG, WEBP файл оруулж болно.";
+
+const isAllowedCVFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_CV_TYPES.has(file.type) || ALLOWED_CV_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
+
 const inferFileType = (name?: string, data?: string): CVFileType => {
   const lowerName = name?.toLowerCase() || "";
   if (lowerName.endsWith(".pdf") || data?.startsWith("data:application/pdf")) return "pdf";
@@ -183,11 +193,12 @@ export default function JobDetailModal({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const isPDF = file.type === "application/pdf";
-    const isImage = file.type.startsWith("image/");
+    const isPDF = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    const isImage = isAllowedCVFile(file) && !isPDF;
 
-    if (!isPDF && !isImage) {
-      showAlert("Зөвхөн PDF, JPG, PNG файл оруулна уу", "warning");
+    if (!isAllowedCVFile(file)) {
+      showAlert(CV_FILE_TYPE_MESSAGE, "warning");
+      e.target.value = "";
       return;
     }
 
@@ -580,12 +591,12 @@ export default function JobDetailModal({
                     >
                       <FileText size={36} className="text-[#4c6ef5] mx-auto mb-3 group-hover:scale-110 transition-transform" />
                       <p className="text-sm text-white font-medium mb-1">PDF файл эсвэл зураг сонгоно уу</p>
-                      <p className="text-xs text-gray-500">PDF, JPG, PNG, JPEG дэмжинэ</p>
+                      <p className="text-xs text-gray-500">PDF, JPG, JPEG, PNG, WEBP дэмжинэ</p>
                     </div>
                     <input
                       id="jobDetailCvInput"
                       type="file"
-                      accept=".pdf,image/*"
+                      accept={CV_ACCEPT}
                       className="hidden"
                       onChange={handleFile}
                     />

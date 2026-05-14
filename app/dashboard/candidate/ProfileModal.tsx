@@ -4,6 +4,16 @@ import { X } from "lucide-react";
 import { compressImageDataUrl, compressImageFile, safeSetLocalStorage, loadFromIndexedDB } from "@/lib/imageStorage";
 import { useAlert } from "@/components/AlertProvider";
 
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const ALLOWED_IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp"];
+const IMAGE_ACCEPT = ".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp";
+const IMAGE_FILE_TYPE_MESSAGE = "Зөвхөн JPG, JPEG, PNG, WEBP зураг оруулж болно.";
+
+const isAllowedImageFile = (file: File) => {
+  const fileName = file.name.toLowerCase();
+  return ALLOWED_IMAGE_TYPES.has(file.type) || ALLOWED_IMAGE_EXTENSIONS.some((ext) => fileName.endsWith(ext));
+};
+
 type CandidateProfileForm = {
   lastName: string;
   firstName: string;
@@ -90,8 +100,8 @@ export default function ProfileModal({
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
-      showAlert("Зөвхөн зураг файл сонгоно уу.", "warning");
+    if (!isAllowedImageFile(file)) {
+      showAlert(IMAGE_FILE_TYPE_MESSAGE, "warning");
       e.target.value = "";
       return;
     }
@@ -154,7 +164,7 @@ export default function ProfileModal({
 
     const saved = await safeSetLocalStorage(storageKey, JSON.stringify(nextForm));
     if (!saved) {
-      showAlert("Зураг хэт том байна. Бага хэмжээтэй JPG/PNG зураг сонгоно уу.", "warning");
+      showAlert("Зураг хэт том байна. Бага хэмжээтэй JPG, PNG, WEBP зураг сонгоно уу.", "warning");
       return;
     }
     onSaved?.(nextForm);
@@ -190,7 +200,7 @@ export default function ProfileModal({
             </div>
             <div className="min-w-0">
               <p className="text-sm text-white font-medium mb-1">Цээж зураг</p>
-              <p className="text-xs text-gray-500 mb-2">JPG, PNG дэмжинэ</p>
+              <p className="text-xs text-gray-500 mb-2">JPG, PNG, WEBP дэмжинэ</p>
               <button
                 onClick={() => document.getElementById("photoInput")?.click()}
                 className="px-3 py-1.5 text-xs border border-[#1e2535] rounded-xl text-gray-400 hover:text-white transition-all"
@@ -200,7 +210,7 @@ export default function ProfileModal({
               <input
                 id="photoInput"
                 type="file"
-                accept="image/*"
+                accept={IMAGE_ACCEPT}
                 className="hidden"
                 onChange={handlePhoto}
               />

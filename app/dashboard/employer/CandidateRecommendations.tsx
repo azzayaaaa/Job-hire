@@ -43,7 +43,7 @@ export default function CandidateRecommendations({
         const response = await axios.post(
           API_URLS.jobs.recommendationsCandidatesForJob(),
           { jobId },
-          { timeout: 30000 }
+          { timeout: 10000 }
         );
 
         if (response.data?.recommendations) {

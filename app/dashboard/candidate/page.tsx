@@ -804,15 +804,16 @@ function CandidateDashboardContent() {
     (sum: number, conversation: any) => sum + Number(conversation?.unreadCount || 0),
     0,
   );
+  const sessionUserType = (session?.user as any)?.userType?.toUpperCase();
+  const isWrongDashboardRole = status === "authenticated" && sessionUserType && sessionUserType !== "CANDIDATE";
 
   useEffect(() => {
     if (status === "unauthenticated") router.replace("/login");
     if (status !== "authenticated" || !session?.user) return;
 
-    const userType = (session.user as any).userType?.toUpperCase();
-    if (userType === "ADMIN") router.replace("/dashboard/admin");
-    else if (userType === "EMPLOYER") router.replace("/dashboard/employer");
-  }, [session, status, router]);
+    if (sessionUserType === "ADMIN") router.replace("/dashboard/admin");
+    else if (sessionUserType === "EMPLOYER") router.replace("/dashboard/employer");
+  }, [session, sessionUserType, status, router]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -863,7 +864,7 @@ function CandidateDashboardContent() {
 
   const fetchData = useCallback(async (options?: { silent?: boolean }) => {
     const userId = (session?.user as any)?.id;
-    if (!userId) return;
+    if (!userId || isWrongDashboardRole) return;
     try {
       if (!options?.silent) setLoading(true);
       const results = await Promise.allSettled([
@@ -880,7 +881,7 @@ function CandidateDashboardContent() {
     } finally {
       if (!options?.silent) setLoading(false);
     }
-  }, [session]);
+  }, [session, isWrongDashboardRole]);
 
   useEffect(() => {
     if (session) fetchData();
@@ -1047,6 +1048,12 @@ function CandidateDashboardContent() {
       resetAxiosClient();
     }
   }, [status]);
+
+  useEffect(() => {
+    const openUpgrade = () => setShowUpgradePlan(true);
+    window.addEventListener("jobhub:open-upgrade-plan", openUpgrade);
+    return () => window.removeEventListener("jobhub:open-upgrade-plan", openUpgrade);
+  }, []);
 
   const handleSaveToggle = async (jobId: number, saved: boolean) => {
     const userId = (session?.user as any)?.id;
@@ -1224,6 +1231,14 @@ function CandidateDashboardContent() {
     (session?.user as any)?.email?.split("@")[0] ||
     "Нэвтрэгч";
   const userInitial = userName[0]?.toUpperCase() || "Б";
+
+  if (status === "loading" || isWrongDashboardRole) {
+    return (
+      <div className="grid h-screen place-items-center bg-[#050b14]">
+        <Loader2 className="animate-spin text-[#4f67ff]" />
+      </div>
+    );
+  }
 
   return (
     <DashboardLayout role="candidate">
