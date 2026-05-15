@@ -48,7 +48,7 @@ function jobIcon(title: string) {
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     ACTIVE: { label: "Идэвхтэй", cls: "bg-[#10B981]/12 text-[#10B981]" },
-    PAUSED: { label: "Нөөрог", cls: "bg-[#F59E0B]/12 text-[#F59E0B]" },
+    PAUSED: { label: "Нooрог", cls: "bg-[#F59E0B]/12 text-[#F59E0B]" },
     CLOSED: { label: "Хаагдсан", cls: "bg-white/[0.06] text-white/30" },
   };
   const s = map[status] ?? map["ACTIVE"];
@@ -102,7 +102,7 @@ export default function JobsView({
       }
 
       const data = await response.json();
-      const shareLink = data.shareLink || `http://localhost:3000/dashboard/candidate?job=${jobId}`;
+      const shareLink = data.shareLink || `${window.location.origin}/dashboard/candidate?job=${jobId}`;
 
       // Copy to clipboard
       await navigator.clipboard.writeText(shareLink);

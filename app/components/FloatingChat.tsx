@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { io, Socket } from "socket.io-client";
 import { X, MessageCircle } from "lucide-react";
 import { useSession } from "next-auth/react";
 import { authenticatedFetch } from "@/lib/axiosClient";
@@ -91,9 +90,8 @@ export default function FloatingChat({
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [hasMoved, setHasMoved] = useState(false);
 
-  const chatSocketRef = useRef<Socket | null>(null);
-  const [socketReady, setSocketReady] = useState(false);
   const [chatAvailable, setChatAvailable] = useState(false);
+  const socketReady = chatAvailable;
 
   const scrollToInputFnRef = useRef<() => void>(() => {});
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -134,34 +132,6 @@ export default function FloatingChat({
       clearInterval(interval);
     };
   }, [userId]);
-
-  useEffect(() => {
-    if (!userId || !chatAvailable) return;
-
-    const socket = io(API_URLS.sockets.chat(), {
-      reconnectionAttempts: 3,
-      transports: ["websocket", "polling"],
-    });
-
-    chatSocketRef.current = socket;
-
-    socket.on("connect", () => {
-      socket.emit("join-room", userId);
-      setSocketReady(true);
-    });
-
-    socket.on("new-message", () => {
-      authenticatedFetch(API_URLS.chat.conversations(userId))
-        .then((res) => setConversations(res.data || []))
-        .catch(() => {});
-    });
-
-    return () => {
-      setSocketReady(false);
-      socket.disconnect();
-      chatSocketRef.current = null;
-    };
-  }, [userId, chatAvailable]);
 
   const ensurePanelAndSelectFirst = () => {
     if (panelOpen) return;
@@ -434,7 +404,7 @@ export default function FloatingChat({
               <ChatWindow
                 receiver={selectedParticipant}
                 senderId={Number(userId)}
-                socket={chatSocketRef.current}
+                socket={null}
                 onProfileClick={() => {}}
                 embedded
                 onScrollToInput={(fn: () => void) => {

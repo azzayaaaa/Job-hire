@@ -1,120 +1,108 @@
-/**
- * Centralized API configuration.
- *
- * In local development the frontend talks directly to each backend service.
- * Set NEXT_PUBLIC_USE_GATEWAY=true if you want to route HTTP calls through
- * the API gateway on port 5000 instead.
- */
 const browserOrigin =
   typeof window !== "undefined"
     ? `${window.location.protocol}//${window.location.hostname}`
     : "http://localhost";
 
-const useGateway = process.env.NEXT_PUBLIC_USE_GATEWAY === "true";
-const gatewayBase =
-  process.env.NEXT_PUBLIC_GATEWAY_URL?.replace(/\/$/, "") ||
-  `${browserOrigin}:5000`;
-
-const serviceBase = (port: number) =>
-  useGateway ? gatewayBase : `${browserOrigin}:${port}`;
-
-const authBase = serviceBase(5001);
-const jobBase = serviceBase(5003);
-const aiBase = serviceBase(5004);
-const userBase = serviceBase(5005);
-const notifyBase = serviceBase(5006);
-const chatBase = serviceBase(5007);
+const apiBase = "";
 
 export const API_URLS = {
   auth: {
     profile: (userId: number | string) =>
-      `${authBase}/api/auth/profile/${userId}`,
-    updateProfile: () => `${authBase}/api/auth/update-profile`,
-    login: () => `${authBase}/api/auth/login`,
-    register: () => `${authBase}/api/auth/register`,
-    googleLogin: () => `${authBase}/api/auth/google-login`,
-    sendCode: () => `${authBase}/api/auth/send-code`,
-    verify: () => `${authBase}/api/auth/verify`,
-    forgotPassword: () => `${authBase}/api/auth/forgot-password`,
-    resetPassword: () => `${authBase}/api/auth/reset-password`,
+      `${apiBase}/api/auth/profile/${userId}`,
+    updateProfile: () => `${apiBase}/api/auth/update-profile`,
+    login: () => `${apiBase}/api/auth/login`,
+    register: () => `${apiBase}/api/auth/register`,
+    googleLogin: () => `${apiBase}/api/auth/google-login`,
+    sendCode: () => `${apiBase}/api/auth/send-code`,
+    verify: () => `${apiBase}/api/auth/verify`,
+    forgotPassword: () => `${apiBase}/api/auth/forgot-password`,
+    resetPassword: () => `${apiBase}/api/auth/reset-password`,
+    adminStats: () => `${apiBase}/api/auth/admin/stats`,
+    adminUsers: () => `${apiBase}/api/auth/admin/users`,
+    adminUpdateRole: () => `${apiBase}/api/auth/admin/update-role`,
+    adminUpdatePlan: () => `${apiBase}/api/auth/admin/update-plan`,
+    adminDeleteUser: (userId: number | string) => `${apiBase}/api/auth/admin/users/${userId}`,
   },
 
   jobs: {
-    all: () => `${jobBase}/api/jobs/all`,
-    stats: () => `${jobBase}/api/jobs/filters/stats`,
-    apply: () => `${jobBase}/api/jobs/apply`,
-    applyWithAutoCv: () => `${jobBase}/api/jobs/apply-with-auto-cv`,
-    create: () => `${jobBase}/api/jobs/create`,
-    detail: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
-    employerJobs: (employerId: number | string) => `${jobBase}/api/jobs/employer/${employerId}`,
-    update: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
-    updateStatus: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}/status`,
-    delete: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}`,
-    shareLink: (jobId: number | string) => `${jobBase}/api/jobs/${jobId}/share-link`,
+    all: () => `${apiBase}/api/jobs/all`,
+    stats: () => `${apiBase}/api/jobs/filters/stats`,
+    apply: () => `${apiBase}/api/jobs/apply`,
+    applyWithAutoCv: () => `${apiBase}/api/jobs/apply-with-auto-cv`,
+    create: () => `${apiBase}/api/jobs/create`,
+    detail: (jobId: number | string) => `${apiBase}/api/jobs/${jobId}`,
+    employerJobs: (employerId: number | string) => `${apiBase}/api/jobs/employer/${employerId}`,
+    update: (jobId: number | string) => `${apiBase}/api/jobs/${jobId}`,
+    updateStatus: (jobId: number | string) => `${apiBase}/api/jobs/${jobId}/status`,
+    delete: (jobId: number | string) => `${apiBase}/api/jobs/${jobId}`,
+    shareLink: (jobId: number | string) => `${apiBase}/api/jobs/${jobId}/share-link`,
     recommendationsForCandidate: () =>
-      `${jobBase}/api/jobs/recommendations/for-candidate`,
+      `${apiBase}/api/jobs/recommendations/for-candidate`,
     recommendationsCandidatesForJob: () =>
-      `${jobBase}/api/jobs/recommendations/candidates-for-job`,
+      `${apiBase}/api/jobs/recommendations/candidates-for-job`,
     savedCount: (userId: number | string) =>
-      `${jobBase}/api/jobs/saved/count/${userId}`,
-    save: () => `${jobBase}/api/jobs/save`,
+      `${apiBase}/api/jobs/saved/count/${userId}`,
+    save: () => `${apiBase}/api/jobs/save`,
     unsave: (jobId: number | string, userId: number | string) =>
-      `${jobBase}/api/jobs/unsave/${jobId}/${userId}`,
+      `${apiBase}/api/jobs/unsave/${jobId}/${userId}`,
     appliedCount: (userId: number | string) =>
-      `${jobBase}/api/jobs/applied/count/${userId}`,
+      `${apiBase}/api/jobs/applied/count/${userId}`,
     applicationStatus: (applicationId: number | string) =>
-      `${jobBase}/api/jobs/applications/${applicationId}/status`,
+      `${apiBase}/api/jobs/applications/${applicationId}/status`,
   },
 
   chat: {
     conversations: (userId: number | string) =>
-      `${chatBase}/api/chat/conversations/${userId}`,
+      `${apiBase}/api/chat/conversations/${userId}`,
     history: (user1: number | string, user2: number | string) =>
-      `${chatBase}/api/chat/history/${user1}/${user2}`,
-    send: () => `${chatBase}/api/chat/send`,
+      `${apiBase}/api/chat/history/${user1}/${user2}`,
+    send: () => `${apiBase}/api/chat/send`,
     seen: (messageId: number | string) =>
-      `${chatBase}/api/chat/messages/${messageId}/seen`,
+      `${apiBase}/api/chat/messages/${messageId}/seen`,
+    reaction: (messageId: number | string) =>
+      `${apiBase}/api/chat/messages/${messageId}/reaction`,
     clear: (user1: number | string, user2: number | string) =>
-      `${chatBase}/api/chat/clear/${user1}/${user2}`,
+      `${apiBase}/api/chat/clear/${user1}/${user2}`,
   },
 
   ai: {
-    ask: () => `${aiBase}/api/ai/ask`,
-    askWithFile: () => `${aiBase}/api/ai/ask-file`,
-    parseCv: () => `${aiBase}/api/ai/parse-cv`,
-    analyze: () => `${aiBase}/api/ai/analyze`,
-    analyzeCv: () => `${aiBase}/api/ai/analyze-cv`,
-    matchCvToJob: () => `${aiBase}/api/ai/match-cv-to-job`,
-    generateCv: () => `${aiBase}/api/ai/generate-cv`,
+    ask: () => `${apiBase}/api/ai/ask`,
+    askWithFile: () => `${apiBase}/api/ai/ask-file`,
+    parseCv: () => `${apiBase}/api/ai/parse-cv`,
+    analyze: () => `${apiBase}/api/ai/analyze`,
+    analyzeCv: () => `${apiBase}/api/ai/analyze-cv`,
+    matchCvToJob: () => `${apiBase}/api/ai/match-cv-to-job`,
+    generateCv: () => `${apiBase}/api/ai/generate-cv`,
+    generateRoadmap: () => `${apiBase}/api/ai/generate-roadmap`,
   },
 
   notify: {
-    sendEmail: () => `${notifyBase}/api/notify/send-email`,
+    sendEmail: () => `${apiBase}/api/notify/send-email`,
   },
 
   user: {
-    profile: (userId: number | string) => `${userBase}/api/users/profile/${userId}`,
-    entitlements: (userId: number | string) => `${userBase}/api/users/entitlements/${userId}`,
-    useEntitlement: (userId: number | string) => `${userBase}/api/users/entitlements/${userId}/use`,
-    upgradePlan: (userId: number | string) => `${userBase}/api/users/entitlements/${userId}/upgrade`,
-    createPaymentOrder: () => `${userBase}/api/users/payment-orders`,
-    paymentOrders: (userId: number | string) => `${userBase}/api/users/payment-orders/user/${userId}`,
-    adminPaymentOrders: () => `${userBase}/api/users/admin/payment-orders`,
-    adminApprovePaymentOrder: (orderId: number | string) => `${userBase}/api/users/admin/payment-orders/${orderId}/approve`,
-    adminRejectPaymentOrder: (orderId: number | string) => `${userBase}/api/users/admin/payment-orders/${orderId}/reject`,
+    profile: (userId: number | string) => `${apiBase}/api/users/profile/${userId}`,
+    entitlements: (userId: number | string) => `${apiBase}/api/users/entitlements/${userId}`,
+    useEntitlement: (userId: number | string) => `${apiBase}/api/users/entitlements/${userId}/use`,
+    upgradePlan: (userId: number | string) => `${apiBase}/api/users/entitlements/${userId}/upgrade`,
+    createPaymentOrder: () => `${apiBase}/api/users/payment-orders`,
+    paymentOrders: (userId: number | string) => `${apiBase}/api/users/payment-orders/user/${userId}`,
+    adminPaymentOrders: () => `${apiBase}/api/users/admin/payment-orders`,
+    adminApprovePaymentOrder: (orderId: number | string) => `${apiBase}/api/users/admin/payment-orders/${orderId}/approve`,
+    adminRejectPaymentOrder: (orderId: number | string) => `${apiBase}/api/users/admin/payment-orders/${orderId}/reject`,
   },
 
   notifications: {
-    list: (userId: number | string) => `${userBase}/api/notifications/${userId}`,
-    unreadCount: (userId: number | string) => `${userBase}/api/notifications/${userId}/unread`,
-    create: () => `${userBase}/api/notifications`,
-    markAsRead: (notificationId: number | string) => `${userBase}/api/notifications/${notificationId}/read`,
-    updatePreferences: (userId: number | string) => `${userBase}/api/notifications/${userId}/preferences`,
-    delete: (notificationId: number | string) => `${userBase}/api/notifications/${notificationId}`,
+    list: (userId: number | string) => `${apiBase}/api/notifications/${userId}`,
+    unreadCount: (userId: number | string) => `${apiBase}/api/notifications/${userId}/unread`,
+    create: () => `${apiBase}/api/notifications`,
+    markAsRead: (notificationId: number | string) => `${apiBase}/api/notifications/${notificationId}/read`,
+    updatePreferences: (userId: number | string) => `${apiBase}/api/notifications/${userId}/preferences`,
+    delete: (notificationId: number | string) => `${apiBase}/api/notifications/${notificationId}`,
   },
 
   sockets: {
-    chat: () => `${browserOrigin}:5007`,
-    auth: () => `${browserOrigin}:5001`,
+    chat: () => browserOrigin,
+    auth: () => browserOrigin,
   },
 } as const;

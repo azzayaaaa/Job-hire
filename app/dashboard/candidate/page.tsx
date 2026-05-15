@@ -40,7 +40,6 @@ import {
 } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { io } from "socket.io-client";
 import {
   authenticatedFetch,
   authenticatedPost,
@@ -735,7 +734,7 @@ function CandidateDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<any[]>([]);
   const [selectedContact, setSelectedContact] = useState<any>(null);
-  const [chatSocket, setChatSocket] = useState<any>(null);
+  const chatSocket = null;
   const [floatingChatEnabled, setFloatingChatEnabled] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [savedCount, setSavedCount] = useState(0);
@@ -1009,37 +1008,12 @@ function CandidateDashboardContent() {
   }, [jobs, session]);
 
   useEffect(() => {
-    const userId = (session?.user as any)?.id;
-    if (!userId) return;
-
-    const socket = io(API_URLS.sockets.chat());
-    setChatSocket(socket);
-    socket.on("connect", () => { socket.emit("join-room", userId); });
-    socket.on("new-message", () => { fetchConversations().catch(() => {}); });
-
-    return () => {
-      setChatSocket(null);
-      socket.off("new-message");
-      socket.disconnect();
-    };
-  }, [session, fetchConversations]);
-
-  useEffect(() => {
     if (!session?.user) return;
     const iv = setInterval(() => {
       refreshFilterStats().catch(() => {});
     }, 60000);
     return () => clearInterval(iv);
   }, [session, refreshFilterStats]);
-
-  useEffect(() => {
-    const socket = io(API_URLS.sockets.auth());
-    socket.on("new-job-posted", (data: any) => {
-      setJobs((prev) => [...hydrateJobImages([data.job]), ...prev]);
-      refreshFilterStats().catch(() => {});
-    });
-    return () => { socket.disconnect(); };
-  }, [refreshFilterStats]);
 
   useEffect(() => {
     if (status === "unauthenticated") {

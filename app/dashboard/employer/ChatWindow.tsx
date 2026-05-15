@@ -84,7 +84,7 @@ function formatTime(createdAt?: string) {
 }
 
 function formatPresence(lastActiveAt?: string | null, isOnline?: boolean) {
-  if (isOnline) return "Идэвхтэй байна";
+  if (isOnline) return "Онлайн";
   if (!lastActiveAt) return "Офлайн";
 
   const date = new Date(lastActiveAt);
@@ -288,6 +288,38 @@ export default function ChatWindow({
     fetchHistory();
   }, [receiver?.id, senderIdNum, chatStorageKey]);
 
+  useEffect(() => {
+    if (!receiver?.id) return;
+
+    const pollHistory = async () => {
+      try {
+        const res = await authenticatedFetch(API_URLS.chat.history(senderIdNum, receiver.id));
+        const incoming = (res.data || []) as ChatMessage[];
+        setMessages((prev) => {
+          const next = mergeMessages(prev, incoming);
+          saveCachedMessages(next);
+          return next;
+        });
+        incoming
+          .filter(
+            (msg) =>
+              msg.id &&
+              !isLocalTempMessageId(msg.id) &&
+              Number(msg.senderId) === Number(receiver.id) &&
+              Number(msg.receiverId) === senderIdNum &&
+              !(msg.seen ?? msg.isRead),
+          )
+          .forEach((msg) => markAsSeen(msg.id));
+      } catch {
+        // Polling is best-effort; the next tick or manual reopen will retry.
+      }
+    };
+
+    const interval = window.setInterval(pollHistory, 5000);
+    return () => window.clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiver?.id, senderIdNum]);
+
   // Listen for new messages
   useEffect(() => {
     if (!socket || !receiver?.id) return;
@@ -457,7 +489,7 @@ export default function ChatWindow({
     });
 
     try {
-      await authenticatedPost(`http://localhost:5007/api/chat/messages/${msg.id}/reaction`, {
+      await authenticatedPost(API_URLS.chat.reaction(msg.id), {
         reaction: nextReaction,
         userId: senderIdNum,
         receiverId: msg.senderId === senderIdNum ? msg.receiverId : msg.senderId,
@@ -674,8 +706,8 @@ export default function ChatWindow({
 
   if (!receiver?.id) {
     return (
-      <div className="h-full flex items-center justify-center text-white/40 text-[12px]">
-        Select a conversation to start messaging
+      <div className="h-full flex items-center justify-center bg-[#070c18] text-slate-500 text-[12px]">
+        Яриа сонгоно уу
       </div>
     );
   }
@@ -683,10 +715,10 @@ export default function ChatWindow({
   return (
     <div
       ref={containerRef}
-      className="flex flex-col h-full bg-gradient-to-b from-slate-900 to-slate-950 rounded-2xl border border-slate-700/50 overflow-hidden relative"
+      className="flex flex-col h-full bg-[#070c18] overflow-hidden relative"
     >
       {/* Header */}
-      <div className="sticky top-0 z-20 p-4 border-b border-slate-700/50 bg-gradient-to-r from-slate-900/95 to-slate-800/95 flex items-center justify-between backdrop-blur-md">
+      <div className="sticky top-0 z-20 border-b border-[#18223b] bg-[#090f20]/95 px-4 py-3 flex items-center justify-between backdrop-blur-md">
         <button
           type="button"
           onClick={onBackMobile}
@@ -699,19 +731,19 @@ export default function ChatWindow({
         <button
           type="button"
           onClick={onProfileClick}
-          className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-all flex-1 md:ml-0 group rounded-lg p-2 hover:bg-white/5"
+          className="flex items-center gap-3 cursor-pointer transition-all flex-1 md:ml-0 group rounded-lg p-1.5 hover:bg-white/[0.03]"
         >
-          <div className="relative h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
+          <div className="relative h-11 w-11 rounded-full bg-gradient-to-br from-[#7357f6] to-[#4c35bc] flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-lg shadow-[#6d50ef]/15">
             {(receiver.fullName?.[0] || receiver.email[0]).toUpperCase()}
             {presence?.isOnline && (
-              <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-slate-800 bg-green-500 animate-pulse" />
+              <div className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-[#090f20] bg-emerald-400 animate-pulse" />
             )}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">
+            <p className="text-[13px] font-bold text-white truncate">
               {receiver.fullName || receiver.email.split("@")[0]}
             </p>
-            <p className="text-xs text-slate-400 mt-0.5">{formatPresence(presence.lastActiveAt, presence.isOnline)}</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">{formatPresence(presence.lastActiveAt, presence.isOnline)}</p>
           </div>
         </button>
 
@@ -730,11 +762,11 @@ export default function ChatWindow({
       />
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24 md:pb-4 scrollbar-hide" ref={scrollRef}>
+      <div className="flex-1 overflow-y-auto bg-[#070c18] p-4 space-y-4 pb-24 md:pb-4 scrollbar-hide" ref={scrollRef}>
         {loading ? (
           <div className="flex flex-col items-center justify-center h-full gap-3">
-            <Loader2 className="animate-spin text-blue-500" size={32} />
-            <p className="text-sm text-slate-400">Чат түүх ачаалж байна...</p>
+            <Loader2 className="animate-spin text-[#7c5cff]" size={32} />
+            <p className="text-sm text-slate-500">Чат түүх ачаалж байна...</p>
           </div>
         ) : messages.length > 0 ? (
           messages.map((msg, idx) => {
@@ -765,9 +797,9 @@ export default function ChatWindow({
                   <div
                     className={`relative w-fit rounded-2xl transition-all ${
                       isSender
-                        ? "bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/20 self-end"
-                        : "bg-slate-800 text-white border border-slate-700 self-start hover:bg-slate-700"
-                    } ${hasAttachment ? "!bg-transparent !border-0 !shadow-none hover:!bg-transparent" : ""} ${isActive ? "ring-2 ring-blue-400" : ""}`}
+                        ? "bg-[#6046d7] text-white shadow-lg shadow-[#6046d7]/20 self-end"
+                        : "bg-[#151c2d] text-slate-100 border border-[#1f2a44] self-start hover:bg-[#192235]"
+                    } ${hasAttachment ? "!bg-transparent !border-0 !shadow-none hover:!bg-transparent" : ""} ${isActive ? "ring-2 ring-[#8f7cff]" : ""}`}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
@@ -810,12 +842,12 @@ export default function ChatWindow({
                         onClick={() => {
                           setActiveMessageId((prev) => (prev === msg.id ? null : msg.id));
                         }}
-                        className="relative text-left text-sm leading-relaxed break-words w-fit"
+                        className="relative text-left text-[13px] leading-relaxed break-words w-fit"
                         style={{ padding: "10px 14px" }}
                         aria-label="Message actions"
                       >
                         {msg.replyPreview && (
-                          <div className={`mb-2 rounded-lg border-l-3 px-3 py-2 text-xs opacity-90 font-medium ${isSender ? "border-blue-400 bg-blue-900/30" : "border-blue-500 bg-slate-900/50"}`}>
+                          <div className={`mb-2 rounded-lg border-l-3 px-3 py-2 text-xs opacity-90 font-medium ${isSender ? "border-[#b6a9ff] bg-[#34247a]/40" : "border-[#7c5cff] bg-[#0b1020]/70"}`}>
                             {msg.replyPreview}
                           </div>
                         )}
@@ -827,7 +859,7 @@ export default function ChatWindow({
                           </span>
                         )}
 
-                        <div className={`mt-2 text-xs opacity-60 flex items-center gap-1 ${isSender ? "text-right" : ""}`}>
+                        <div className={`mt-2 flex items-center gap-1 text-[10px] opacity-55 ${isSender ? "justify-end text-right" : ""}`}>
                           {formatTime(msg.createdAt)}
                           {isSender && (
                             <span className="ml-1 opacity-70">
@@ -844,12 +876,12 @@ export default function ChatWindow({
           })
         ) : (
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center">
+            <div className="w-16 h-16 rounded-full bg-[#111a31] flex items-center justify-center">
               <Send size={32} className="text-slate-500" />
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-300">Одоогоор сэтгэгдэл байхгүй</p>
-              <p className="text-xs text-slate-500 mt-1">Яриалагчаас эхэлье!</p>
+              <p className="text-sm font-semibold text-slate-300">Одоогоор мессеж байхгүй</p>
+              <p className="text-xs text-slate-500 mt-1">Яриагаа эхлүүлээрэй!</p>
             </div>
           </div>
         )}
@@ -903,15 +935,15 @@ export default function ChatWindow({
         onSubmit={handleSend}
         className={
           embedded
-            ? "static bg-slate-800/50 p-4 py-3 border-t border-slate-700/50"
-            : "fixed bottom-[56px] left-0 right-0 z-40 bg-slate-800/80 border-t border-slate-700/50 px-3 py-2 min-h-[60px] md:static md:min-h-0 md:bg-slate-800/50 md:p-4 md:py-3 md:border-t-0 backdrop-blur-md"
+            ? "static border-t border-[#18223b] bg-[#090f20] p-4 py-3"
+            : "fixed bottom-[56px] left-0 right-0 z-40 border-t border-[#18223b] bg-[#090f20]/95 px-3 py-2 min-h-[60px] backdrop-blur-md md:static md:min-h-0 md:p-4 md:py-3 md:border-t md:bg-[#090f20]"
         }
         style={{ paddingBottom: embedded ? undefined : "env(safe-area-inset-bottom)" }}
       >
         {replyTo && (
-          <div className="mb-3 flex items-center justify-between rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 animate-in fade-in slide-in-from-top-2">
+          <div className="mb-3 flex items-center justify-between rounded-xl border border-[#7c5cff]/30 bg-[#7c5cff]/10 px-3 py-2 animate-in fade-in slide-in-from-top-2">
             <div className="min-w-0">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-blue-300 mb-1">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-[#b6a9ff] mb-1">
                 <Reply size={13} />
                 Хариулт
               </div>
@@ -920,7 +952,7 @@ export default function ChatWindow({
             <button
               type="button"
               onClick={() => setReplyTo(null)}
-              className="ml-2 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition-colors shrink-0"
+              className="ml-2 flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition-colors shrink-0"
               aria-label="Cancel reply"
             >
               <X size={16} />
@@ -933,7 +965,7 @@ export default function ChatWindow({
             type="button"
             aria-label="Pick image or file"
             onClick={handlePickAttachmentsClick}
-            className="h-11 w-11 flex items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition-all shrink-0 shadow-lg shadow-blue-500/20"
+            className="h-11 w-11 flex items-center justify-center rounded-[8px] text-slate-400 hover:bg-white/5 hover:text-white transition-all shrink-0"
           >
             <ImageIcon size={20} />
           </button>
@@ -943,16 +975,16 @@ export default function ChatWindow({
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            placeholder="Сэтгэгдэл бичээрэй..."
+            placeholder="Мессеж бичих..."
             disabled={sending}
-            className="flex-1 bg-slate-700/50 border border-slate-600 rounded-xl py-2.5 px-4 text-sm outline-none focus:border-blue-500/50 focus:bg-slate-700/70 text-white placeholder:text-slate-500 disabled:opacity-50 transition-colors h-11 resize-none"
+            className="flex-1 bg-[#0c1426] border border-[#1c2845] rounded-[8px] py-2.5 px-4 text-sm outline-none focus:border-[#7c5cff]/60 focus:bg-[#10182d] text-white placeholder:text-slate-600 disabled:opacity-50 transition-colors h-11 resize-none"
           />
 
           {/* Send button */}
           <button
             type="submit"
             disabled={sending || !input.trim()}
-            className="h-11 w-11 flex items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-blue-700 text-white hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0 shadow-lg shadow-blue-500/20"
+            className="h-11 w-11 flex items-center justify-center rounded-[8px] bg-[#6046d7] text-white hover:bg-[#7054ea] disabled:opacity-50 disabled:cursor-not-allowed transition-all shrink-0 shadow-lg shadow-[#6046d7]/20"
           >
             {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
           </button>

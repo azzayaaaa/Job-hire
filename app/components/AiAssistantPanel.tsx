@@ -1022,7 +1022,7 @@ export default function AiAssistantPanel({
     );
 
     try {
-      const res = await authenticatedPost("http://localhost:5004/api/ai/generate-roadmap", {
+      const res = await authenticatedPost(API_URLS.ai.generateRoadmap(), {
         topic: suggestion.title,
         days: 30,
         userId,

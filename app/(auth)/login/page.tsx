@@ -9,6 +9,7 @@ import axios, { AxiosError } from "axios";
 import Image from "next/image";
 import { useLanguage } from "../../Providers";
 import { useAlert } from "@/components/AlertProvider";
+import { API_URLS } from "@/lib/apiConfig";
 
 
 type ErrorResponse = {
@@ -128,7 +129,7 @@ function LoginPageContent() {
   const handleForgotPassword = async () => {
     try {
       setLoading(true);
-      await axios.post("http://localhost:5001/api/auth/forgot-password", {
+      await axios.post(API_URLS.auth.forgotPassword(), {
         email,
       });
       setForgotStep(2);
@@ -147,7 +148,7 @@ function LoginPageContent() {
 
     try {
       setLoading(true);
-      const res = await axios.post("http://localhost:5001/api/auth/verify", {
+      const res = await axios.post(API_URLS.auth.verify(), {
         email,
         code: resetCode,
       });
@@ -171,7 +172,7 @@ function LoginPageContent() {
 
     try {
       setLoading(true);
-      await axios.post("http://localhost:5001/api/auth/reset-password", {
+      await axios.post(API_URLS.auth.resetPassword(), {
         email,
         code: resetCode,
         newPassword,
@@ -186,7 +187,7 @@ function LoginPageContent() {
   };
 
   return (
-    <div className="relative flex min-h-[100dvh] w-full items-stretch justify-center overflow-x-hidden overflow-y-auto bg-[#050810] font-sans text-white">
+    <div className="relative flex h-screen w-full items-stretch justify-center overflow-hidden bg-[#050810] font-sans text-white">
       <div className="pointer-events-none absolute top-[-10%] left-[-10%] h-[40%] w-[40%] rounded-full bg-[#4F67FF]/10 blur-[120px]"></div>
       <div className="pointer-events-none absolute right-[-10%] bottom-[-10%] h-[40%] w-[40%] rounded-full bg-[#4F67FF]/10 blur-[120px]"></div>
 

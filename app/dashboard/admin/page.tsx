@@ -38,7 +38,6 @@ import {
 import { useSession } from "next-auth/react";
 import { notFound, useRouter, useSearchParams } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { io } from "socket.io-client";
 import axios from "axios";
 import DashboardLayout from "../DashboardLayout";
 import { useAlert } from "@/components/AlertProvider";
@@ -883,7 +882,6 @@ const AdminDashboardContent = () => {
   const [planDuration, setPlanDuration] = useState<"SEVEN_DAYS" | "ONE_MONTH" | "UNTIL_CHANGED">("ONE_MONTH");
   const [previewPayment, setPreviewPayment] = useState<PaymentOrder | null>(null);
   const refreshInFlightRef = useRef(false);
-  const socketRef = useRef<any>(null);
 
   // Get unique roles and companies from users
   const uniqueRoles = useMemo(() => ["ADMIN", "EMPLOYER", "CANDIDATE"], []);
@@ -904,8 +902,8 @@ const AdminDashboardContent = () => {
     try {
       if (!silent) setLoading(true);
       const [statsRes, usersRes, paymentsRes] = await Promise.all([
-        authenticatedFetch("http://localhost:5001/api/auth/admin/stats"),
-        authenticatedFetch("http://localhost:5001/api/auth/admin/users"),
+        authenticatedFetch(API_URLS.auth.adminStats()),
+        authenticatedFetch(API_URLS.auth.adminUsers()),
         authenticatedFetch(API_URLS.user.adminPaymentOrders()),
       ]);
       setStats(statsRes.data);
@@ -966,28 +964,7 @@ const AdminDashboardContent = () => {
       s?.user?.userType === "ADMIN" || s?.user?.email === "azzayabayartai07@gmail.com";
     if (!isAdmin) return;
 
-    const socket = io("http://localhost:5001");
-    socketRef.current = socket;
-    
-    socket.on("connect", () => socket.emit("join-admin"));
-    socket.on("admin-data-updated", () => fetchData(true));
-    
-    // Listen for admin actions from other admins
-    socket.on("admin-action", (action: any) => {
-      // Refresh data when another admin makes changes
-      if (
-        action?.type === "role-updated" ||
-        action?.type === "plan-updated" ||
-        action?.type === "user-deleted"
-      ) {
-        fetchData(true);
-      }
-    });
-    
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
+    return undefined;
   }, [session]);
 
   const handleViewChange = (nextView: AdminView) => {
@@ -1080,16 +1057,12 @@ const AdminDashboardContent = () => {
 
   const handleUpdateRole = async (userId: number, newRole: string) => {
     try {
-      await authenticatedPost("http://localhost:5001/api/auth/admin/update-role", {
+      await authenticatedPost(API_URLS.auth.adminUpdateRole(), {
         userId,
         userType: newRole.toUpperCase(),
       });
       showAlert("Эрх амжилттай шинэчлэгдлээ", "success", "Амжилт");
       await fetchData();
-      // Emit real-time event to other admins
-      if (socketRef.current) {
-        socketRef.current.emit("admin-action", { type: "role-updated", userId, newRole: newRole.toUpperCase() });
-      }
       setShowRoleModal(false);
       setSelectedUserForRole(null);
     } catch {
@@ -1115,21 +1088,13 @@ const AdminDashboardContent = () => {
     if (!selectedUserForPlan) return;
 
     try {
-      await authenticatedPost("http://localhost:5001/api/auth/admin/update-plan", {
+      await authenticatedPost(API_URLS.auth.adminUpdatePlan(), {
         userId: selectedUserForPlan.id,
         plan: planChoice,
         duration: planChoice === "PRO" ? planDuration : undefined,
       });
       showAlert("Эрх амжилттай шинэчлэгдлээ", "success", "Амжилт");
       await fetchData();
-      if (socketRef.current) {
-        socketRef.current.emit("admin-action", {
-          type: "plan-updated",
-          userId: selectedUserForPlan.id,
-          plan: planChoice,
-          duration: planChoice === "PRO" ? planDuration : null,
-        });
-      }
       setShowPlanModal(false);
       setSelectedUserForPlan(null);
     } catch {
@@ -1177,13 +1142,9 @@ const AdminDashboardContent = () => {
     if (!confirm(`${email} хэрэглэгчийг устгах уу?`)) return;
 
     try {
-      await authenticatedDelete(`http://localhost:5001/api/auth/admin/users/${userId}`);
+      await authenticatedDelete(API_URLS.auth.adminDeleteUser(userId));
       showAlert("Хэрэглэгч амжилттай устгагдлаа", "success", "Амжилт");
       await fetchData();
-      // Emit real-time event to other admins
-      if (socketRef.current) {
-        socketRef.current.emit("admin-action", { type: "user-deleted", userId, email });
-      }
     } catch {
       showAlert("Устгахад алдаа гарлаа", "error", "Алдаа");
     }

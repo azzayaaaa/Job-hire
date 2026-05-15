@@ -16,6 +16,14 @@ let axiosInstance: AxiosInstance | null = null;
 let sessionCache: { value: Session | null; expiresAt: number } | null = null;
 let sessionPromise: Promise<Session | null> | null = null;
 
+const isNetworkError = (error: any) =>
+  error?.code === 'ERR_NETWORK' ||
+  error?.message === 'Network Error' ||
+  error?.code === 'ECONNREFUSED' ||
+  error?.code === 'ETIMEDOUT';
+
+const isRelativeNextApiUrl = (url: string) => url.startsWith('/api/');
+
 const getCachedSession = async (): Promise<Session | null> => {
   const now = Date.now();
   if (sessionCache && sessionCache.expiresAt > now) {
@@ -42,7 +50,7 @@ export const getAxiosClient = (): AxiosInstance => {
   }
 
   axiosInstance = axios.create({
-    timeout: 30000, // Increased timeout to 30s to allow for session fetching
+    timeout: 60000,
     withCredentials: true,
     headers: {
       'Content-Type': 'application/json',
@@ -101,11 +109,13 @@ export const getAxiosClient = (): AxiosInstance => {
       } else if (status === 401) {
         console.warn('Unauthorized (401): Session may have expired');
       } else if (errorCode === 'ECONNABORTED') {
-        console.error(`Request timeout (30s exceeded) for ${requestUrl} - server may be unresponsive`);
-      } else if (errorCode === 'ERR_NETWORK' || errorMessage === 'Network Error') {
-        // Network errors might indicate service is not responding or CORS issues
-        console.error(`Network error calling ${requestUrl}:`, errorMessage, 'Check if service is running and CORS is configured');
-        // Still reject to maintain existing behavior
+        console.warn(`Request timeout calling ${requestUrl}. Retrying if possible.`);
+      } else if (isNetworkError(error)) {
+        if (isRelativeNextApiUrl(requestUrl)) {
+          console.debug(`Transient network error calling ${requestUrl}; retrying if possible.`);
+        } else {
+          console.warn(`Network error calling ${requestUrl}:`, errorMessage);
+        }
       } else if (status) {
         // Server responded with an error status
         console.error(`Server error ${status} calling ${requestUrl}:`, error.response?.data);
@@ -143,13 +153,7 @@ const retryWithBackoff = async (
       lastError = error;
       
       // Only retry on network errors, not on server errors
-      const isNetworkError = 
-        error?.code === 'ERR_NETWORK' || 
-        error?.message === 'Network Error' ||
-        error?.code === 'ECONNREFUSED' ||
-        error?.code === 'ETIMEDOUT';
-      
-      if (!isNetworkError || attempt === maxRetries) {
+      if (!isNetworkError(error) || attempt === maxRetries) {
         throw error;
       }
       
@@ -164,7 +168,7 @@ const retryWithBackoff = async (
 
 /**
  * Make authenticated API call with automatic retry for network errors
- * Usage: await authenticatedFetch(`http://localhost:5001/api/auth/profile/${userId}`)
+ * Usage: await authenticatedFetch(`/api/auth/profile/${userId}`)
  */
 export const authenticatedFetch = async (
   url: string,

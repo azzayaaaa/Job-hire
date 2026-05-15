@@ -3,12 +3,9 @@ import GoogleProvider from "next-auth/providers/google";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { cookies } from "next/headers";
 import dns from "dns";
+import { googleLoginUser, loginUser } from "../../_lib/auth";
 
 dns.setDefaultResultOrder("ipv4first");
-
-const authServiceUrl =
-  process.env.AUTH_SERVICE_URL?.replace(/\/$/, "") ||
-  "http://127.0.0.1:5001";
 
 const handler = NextAuth({
   providers: [
@@ -29,13 +26,9 @@ const handler = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
         try {
-          const res = await fetch(`${authServiceUrl}/api/auth/login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(credentials),
-          });
-          const data = await res.json();
-          if (res.ok && data.user) {
+          const result = await loginUser(String(credentials.email), String(credentials.password));
+          const data = result.data as any;
+          if (result.status === 200 && data.user) {
             return {
               ...data.user,
               id: String(data.user.id),
@@ -77,29 +70,20 @@ const handler = NextAuth({
             cookieStore.delete("pendingUserType");
           } catch {}
 
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000);
+          const result = await googleLoginUser({
+            email: user.email,
+            name: user.name,
+            image: user.image,
+            ...(normalizedUserType ? { userType: normalizedUserType } : {}),
+          });
+          console.log(`[NextAuth] google-login took ${Date.now() - startedAt}ms`);
 
-          const res = await fetch(`${authServiceUrl}/api/auth/google-login`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            signal: controller.signal,
-            body: JSON.stringify({
-              email: user.email,
-              name: user.name,
-              image: user.image,
-              ...(normalizedUserType ? { userType: normalizedUserType } : {}),
-            }),
-          }).finally(() => clearTimeout(timeout));
-          console.log(`[NextAuth] Auth service google-login took ${Date.now() - startedAt}ms`);
-
-          if (!res.ok) {
-            const errorData = await res.json();
-            console.error("[NextAuth] Google Auth Backend Error:", errorData);
+          if (result.status !== 200) {
+            console.error("[NextAuth] Google Auth Backend Error:", result.data);
             return false;
           }
 
-          const data = await res.json();
+          const data = result.data as any;
           console.log(`[NextAuth] Google Auth Success: ${data.user.email} in ${Date.now() - startedAt}ms`);
 
           if (user.email === "azzayabayartai07@gmail.com") {

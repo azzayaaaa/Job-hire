@@ -322,7 +322,7 @@ export default function LandingPage() {
   };
 
   const handleCopyJobLink = async (job: JobForLanding) => {
-    const origin = typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
+    const origin = typeof window !== "undefined" ? window.location.origin : "";
     await navigator.clipboard.writeText(`${origin}/dashboard/candidate?job=${job.id}`);
     showAlert("Ажлын зарын холбоос хуулагдлаа.", "success");
   };
@@ -487,10 +487,10 @@ export default function LandingPage() {
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
                     <p className="text-sm font-black text-white">
-                      {formatMoneyShort(salaryMin)} - {salaryMax >= MAX_SALARY ? "10М₮+" : formatMoneyShort(salaryMax)}
+                      Дээд: {salaryMax >= MAX_SALARY ? "10М₮+" : formatMoneyShort(salaryMax)}
                     </p>
                     <p className="mt-1 text-[11px] font-semibold text-white/30">
-                      Доод ба дээд цалинг гулсуулж сонгоно
+                      Дээд цалинг гулсуулж сонгоно
                     </p>
                   </div>
                   {(salaryMin > MIN_SALARY || salaryMax < MAX_SALARY) && (
@@ -509,23 +509,13 @@ export default function LandingPage() {
                 <div className="space-y-3">
                   <input
                     type="range"
-                    min={MIN_SALARY}
-                    max={MAX_SALARY - SALARY_STEP}
-                    step={SALARY_STEP}
-                    value={salaryMin}
-                    onChange={(e) => setSalaryMin(Math.min(Number(e.target.value), salaryMax - SALARY_STEP))}
-                    className="w-full accent-[#4F67FF]"
-                    aria-label="Доод цалин"
-                  />
-                  <input
-                    type="range"
-                    min={MIN_SALARY + SALARY_STEP}
+                    min={0}
                     max={MAX_SALARY}
                     step={SALARY_STEP}
                     value={salaryMax}
-                    onChange={(e) => setSalaryMax(Math.max(Number(e.target.value), salaryMin + SALARY_STEP))}
-                    className="w-full accent-[#10B981]"
-                    aria-label="Дээд цалин"
+                    onChange={(e) => setSalaryMax(Number(e.target.value))}
+                    className="w-full accent-[#4F67FF]"
+                    aria-label="Цалингийн дээд хязгаар"
                   />
                 </div>
                 <div className="mt-2 flex justify-between text-[10px] font-bold text-white/25">

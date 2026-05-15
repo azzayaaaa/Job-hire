@@ -6,6 +6,7 @@ import { Eye, EyeOff, User, Briefcase, Loader2, ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import { signIn } from "next-auth/react";
 import { useAlert } from "@/components/AlertProvider";
+import { API_URLS } from "@/lib/apiConfig";
 
 export default function RegisterPage() {
   const { showAlert } = useAlert();
@@ -41,7 +42,7 @@ export default function RegisterPage() {
     if (!email || !password) return showAlert("Мэдээллээ бүрэн бөглөнө үү", "error");
     setIsLoading(true);
     try {
-      const res = await fetch("http://localhost:5001/api/auth/send-code", {
+      const res = await fetch(API_URLS.auth.sendCode(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
@@ -64,7 +65,7 @@ export default function RegisterPage() {
     if (code.length !== 6) return showAlert("6 оронтой код оруулна уу", "error");
     setIsLoading(true);
     try {
-        const res = await fetch("http://localhost:5001/api/auth/register", {
+        const res = await fetch(API_URLS.auth.register(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, password, userType: userType.toUpperCase(), code, invitedByCode: promoCode }),
@@ -94,7 +95,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="relative flex min-h-[100dvh] w-full items-stretch justify-center overflow-x-hidden overflow-y-auto bg-[#050810] font-sans text-white">
+    <div className="relative flex h-screen w-full items-stretch justify-center overflow-hidden bg-[#050810] font-sans text-white">
       {/* Background Glows */}
       <div className="absolute top-[-10%] right-[-10%] w-[40%] h-[40%] bg-[#10B981]/5 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] left-[-10%] w-[40%] h-[40%] bg-[#4F67FF]/5 rounded-full blur-[120px] pointer-events-none"></div>
@@ -168,10 +169,6 @@ export default function RegisterPage() {
                       <input type={showPass ? "text" : "password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all pr-12" />
                       <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-4 top-1/2 -translate-y-1/2 text-[#374151] hover:text-white transition-colors">{showPass ? <EyeOff size={18} /> : <Eye size={18} />}</button>
                     </div>
-                  </div>
-                  <div className="space-y-1.5 text-black">
-                    <label className="text-[10px] font-black text-[#374151] uppercase tracking-widest ml-1">Урилгын код</label>
-                    <input type="text" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} placeholder="Заавал биш" className="w-full bg-[#111827] border border-white/5 text-white p-4 rounded-2xl text-sm outline-none focus:border-[#10B981]/30 transition-all font-black tracking-widest placeholder:font-normal placeholder:tracking-normal" />
                   </div>
                   <button onClick={handleSendCode} disabled={isLoading} className="w-full bg-[#10B981] text-white font-black py-4 rounded-2xl mt-2 shadow-lg shadow-[#10B981]/20 hover:opacity-90 transition-all text-sm tracking-widest flex items-center justify-center gap-2 active:scale-95">
                     {isLoading ? <Loader2 className="animate-spin" size={18} /> : "ҮРГЭЛЖЛҮҮЛЭХ"}

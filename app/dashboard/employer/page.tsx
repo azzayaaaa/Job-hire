@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
 import { notFound, useSearchParams, useRouter } from "next/navigation";
-import { io } from "socket.io-client";
 import { authenticatedDelete, authenticatedFetch, authenticatedPatch, authenticatedPost, authenticatedPut, resetAxiosClient } from "@/lib/axiosClient";
 import { API_URLS } from "@/lib/apiConfig";
 import { useAlert } from "@/components/AlertProvider";
@@ -105,7 +104,7 @@ function EmployerDashboardContent() {
   const [notificationCount, setNotificationCount] = useState(0);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   const [processingApplicationId, setProcessingApplicationId] = useState<number | null>(null);
-  const [chatSocket, setChatSocket]       = useState<any>(null);
+  const chatSocket = null;
   const [aiOpen, setAiOpen] = useState(false);
   const [profileBubbleContact, setProfileBubbleContact] = useState<any>(null);
   const [floatingChatEnabled, setFloatingChatEnabled] = useState(false);
@@ -147,7 +146,7 @@ function EmployerDashboardContent() {
       } catch (jobsError: any) {
         if (jobsError?.code === 'ERR_NETWORK' || jobsError?.message === 'Network Error') {
           console.error("Job service unavailable - network error:", jobsError.message);
-          showAlert?.('Unable to fetch jobs. Please check if the job service is running.', 'error');
+          showAlert?.('Unable to fetch jobs. Please try again.', 'error');
         }
         // Rethrow to be caught by outer catch
         throw jobsError;
@@ -210,7 +209,7 @@ function EmployerDashboardContent() {
       const errorMsg = e?.message || String(e);
       if (e?.code === 'ERR_NETWORK' || errorMsg === 'Network Error') {
         console.error("Network error fetching employer data:", errorMsg);
-        showAlert?.('Network error. Please ensure all services are running.', 'error');
+        showAlert?.('Network error. Please try again.', 'error');
       } else {
         console.error("Error fetching employer data:", e);
       }
@@ -282,29 +281,6 @@ function EmployerDashboardContent() {
     }, 800);
     return () => clearTimeout(timeout);
   }, [tab, selectedContact?.id, fetchData]);
-
-  useEffect(() => {
-    if (!session?.user) return;
-    const socket = io(API_URLS.sockets.auth(), {
-      reconnectionAttempts: 3,
-      transports: ["websocket", "polling"],
-    });
-    socket.on("new-job-posted", () => { if (session?.user) fetchData(); });
-    return () => {
-      socket.disconnect();
-    };
-  }, [session, fetchData]);
-
-  useEffect(() => {
-    if (!session?.user) return;
-    const socket = io(API_URLS.sockets.chat(), {
-      reconnectionAttempts: 3,
-      transports: ["websocket", "polling"],
-    });
-    setChatSocket(socket);
-    socket.on("connect", () => socket.emit("join-room", (session?.user as any).id));
-    return () => { setChatSocket(null); socket?.disconnect(); };
-  }, [session]);
 
   const addConversationOptimistically = (candidate: any) => {
     if (!candidate?.id) return;
