@@ -36,6 +36,7 @@ import {
   LayoutGrid,
   List,
   BadgeCheck,
+  Bell,
   Settings,
 } from "lucide-react";
 import { useSession, signOut } from "next-auth/react";
@@ -50,8 +51,9 @@ import {
 import { API_URLS } from "@/lib/apiConfig";
 import { useAlert } from "@/components/AlertProvider";
 import { CandidateJob, JobSortKey, useJobFilters } from "@/hooks/useJobFilters";
+import { useChatSocket } from "@/hooks/useChatSocket";
 
-// ─── Time formatting ──────────────────────────────────────────────────────────
+ 
 function getRelativeTime(createdAt: string | Date): string {
   const date =
     typeof createdAt === "string" ? new Date(createdAt) : createdAt;
@@ -69,7 +71,7 @@ function getRelativeTime(createdAt: string | Date): string {
   return date.toLocaleDateString("mn-MN");
 }
 
-// ─── Company Avatar ───────────────────────────────────────────────────────────
+ 
 const AVATAR_COLORS = [
   "#3b5bdb", "#2f9e44", "#1971c2", "#e03131",
   "#6741d9", "#0c8599", "#f08c00", "#c2255c",
@@ -130,7 +132,7 @@ function CompanyAvatar({
   );
 }
 
-// ─── Job Type Label ───────────────────────────────────────────────────────────
+ 
 const JOB_TYPE_MAP: Record<string, string> = {
   FULL_TIME: "Бүтэн цаг",
   PART_TIME: "Хагас цаг",
@@ -139,7 +141,7 @@ const JOB_TYPE_MAP: Record<string, string> = {
   INTERNSHIP: "Дадлага",
 };
 
-// ─── Salary formatter ─────────────────────────────────────────────────────────
+ 
 function formatSalary(amount: number): string {
   if (!amount) return "Тохиролцоно";
   return `${amount
@@ -229,16 +231,16 @@ function getJobSalaryMax(job: any): number {
   return Number(job.salaryMax) || parseSalaryValue(job.salary);
 }
 
-// ─── Tag pill ─────────────────────────────────────────────────────────────────
+
 function Tag({ label }: { label: string }) {
   return (
-    <span className="px-2.5 py-1 bg-[#111827] text-gray-400 text-xs rounded-md border border-[#1f2937]">
+    <span className="rounded-md border border-[#1f2937] bg-[#111827] px-2 py-0.5 text-[11px] text-gray-400 md:px-2.5 md:py-1 md:text-xs">
       {label}
     </span>
   );
 }
 
-// ─── JobCard ──────────────────────────────────────────────────────────────────
+
 function JobCard({
   job,
   session,
@@ -364,70 +366,70 @@ function JobCard({
   }
 
   return (
-    <div data-job-id={job.id} className={`bg-white dark:bg-[#111827] border rounded-2xl px-4 md:px-5 py-3 md:py-4 hover:border-blue-200 dark:hover:border-[#3b5bdb]/40 hover:shadow-md transition-all ${highlighted ? "border-blue-500 ring-2 ring-blue-500/40 shadow-lg" : "border-gray-100 dark:border-[#1f2937]"}`}>
-      <div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-4">
-        <CompanyAvatar name={companyName} image={companyImage} size={44} className="hidden sm:block md:w-[52px] md:h-[52px]" />
+    <div data-job-id={job.id} className={`bg-white dark:bg-[#111827] border rounded-xl px-3 py-3 hover:border-blue-200 dark:hover:border-[#3b5bdb]/40 hover:shadow-md transition-all md:rounded-2xl md:px-5 md:py-4 ${highlighted ? "border-blue-500 ring-2 ring-blue-500/40 shadow-lg" : "border-gray-100 dark:border-[#1f2937]"}`}>
+      <div className="flex items-start gap-3 md:items-center md:gap-4">
+        <CompanyAvatar name={companyName} image={companyImage} size={40} className="mt-0.5 md:mt-0" />
         <div className="flex-1 min-w-0">
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2 md:gap-3">
             <div className="min-w-0 flex-1">
-              <h4 className="text-base md:text-base font-extrabold text-gray-900 dark:text-white truncate leading-tight line-clamp-2">
+              <h4 className="text-[15px] md:text-base font-extrabold text-gray-900 dark:text-white leading-snug line-clamp-2">
                 {job.title}
               </h4>
 
-              <div className="mt-1 flex items-center gap-1 flex-wrap">
-                <span className="text-sm text-gray-500 dark:text-gray-400 truncate">
+              <div className="mt-1 flex min-w-0 items-center gap-1">
+                <span className="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400 md:text-sm">
                   {companyName}
                 </span>
                 <BadgeCheck size={13} className="text-blue-500 shrink-0" />
               </div>
 
-              {/* Mobile: salary under title/company (sm smaller font) */}
-              <div className="mt-1 md:hidden">
-                <span className="text-sm font-bold text-emerald-500 whitespace-nowrap bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded-lg">
+              
+              <div className="mt-1.5 md:hidden">
+                <span className="inline-flex max-w-full rounded-lg bg-emerald-50 px-2 py-1 text-sm font-bold text-emerald-500 dark:bg-emerald-500/10">
                   {salaryText}
                 </span>
               </div>
             </div>
 
-            {/* Desktop/tablet: keep salary on the right */}
+            
             <span className="hidden md:inline-flex text-base md:text-lg font-bold text-emerald-500 shrink-0 whitespace-nowrap bg-emerald-50 dark:bg-emerald-500/10 px-2 md:px-3 py-1 rounded-lg">
               {salaryText}
             </span>
           </div>
-          <div className="flex flex-wrap md:items-center md:gap-5 gap-2 mt-2 text-xs text-gray-500 dark:text-gray-400">
-            <span className="flex items-center gap-1.5 md:gap-1.5 w-full md:w-auto">
+          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-gray-500 dark:text-gray-400 md:flex md:flex-wrap md:items-center md:gap-5">
+            <span className="col-span-2 flex min-w-0 items-center gap-1.5 md:w-auto">
               <MapPin size={12} className="shrink-0" />
-              {job.location || "Улаанбаатар"}
+              <span className="truncate">{job.location || "Улаанбаатар"}</span>
             </span>
-            <span className="flex items-center gap-1.5 md:gap-1.5 w-full md:w-auto">
+            <span className="flex items-center gap-1.5 md:w-auto">
               <Briefcase size={12} className="shrink-0" />
               {experience}
             </span>
-            <span className="flex items-center gap-1.5 md:gap-1.5 w-full md:w-auto">
+            <span className="flex items-center gap-1.5 md:w-auto">
               <Clock size={12} className="shrink-0" />
               {relTime}
             </span>
           </div>
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mt-3">
-            <div className="flex gap-1.5 flex-wrap">
+          <div className="mt-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap gap-1.5">
               <Tag label={category} />
               <Tag label={jobType} />
               {(job.tags || []).slice(0, 1).map((t: string) => (
                 <Tag key={t} label={t} />
               ))}
             </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap md:flex-nowrap">
+            <div className="grid grid-cols-[2.5rem_2.5rem_minmax(0,1fr)] items-center gap-2 md:flex md:shrink-0 md:flex-nowrap">
               <button
                 onClick={handleCopyJobLink}
                 title="AI-д илгээхээр холбоос хуулах"
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-blue-500 transition-colors"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-400 transition-colors hover:text-blue-500 dark:bg-[#0d1526] md:h-8 md:w-8 md:bg-transparent md:dark:bg-transparent"
               >
                 <Copy size={15} />
               </button>
               <button
                 onClick={handleSave}
                 title="Хадгалах"
-                className="w-8 h-8 flex items-center justify-center text-gray-400 hover:text-red-400 transition-colors"
+                className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100 text-gray-400 transition-colors hover:text-red-400 dark:bg-[#0d1526] md:h-8 md:w-8 md:bg-transparent md:dark:bg-transparent"
               >
                 <Heart
                   size={16}
@@ -453,7 +455,7 @@ function JobCard({
               <button
                 onClick={() => (applied ? handleChatClick() : onApply(job))}
                 disabled={applied && !isApproved}
-                className={`px-4 py-2 text-xs font-semibold rounded-xl transition-all flex-1 md:flex-none md:min-w-max ${
+                className={`min-h-10 px-4 py-2 text-xs font-semibold rounded-xl transition-all md:flex-none md:min-w-max ${
                   applied && !isApproved
                     ? "bg-gray-200 dark:bg-[#1a2035] text-gray-500 dark:text-gray-500 cursor-not-allowed opacity-60"
                     : "bg-blue-600 text-white hover:bg-blue-500"
@@ -469,7 +471,7 @@ function JobCard({
   );
 }
 
-// ─── Sidebar Checkbox ─────────────────────────────────────────────────────────
+
 function SidebarCheckbox({
   label,
   count,
@@ -505,7 +507,7 @@ function SidebarCheckbox({
   );
 }
 
-// ─── AI Chat Panel ────────────────────────────────────────────────────────────
+
 function AiPanel({
   open,
   onClose,
@@ -723,7 +725,7 @@ function AiPanel({
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+
 function CandidateDashboardContent() {
   const { data: session, status } = useSession();
   const { showAlert } = useAlert();
@@ -734,7 +736,8 @@ function CandidateDashboardContent() {
   const [loading, setLoading] = useState(true);
   const [conversations, setConversations] = useState<any[]>([]);
   const [selectedContact, setSelectedContact] = useState<any>(null);
-  const chatSocket = null;
+  const currentUserId = Number((session?.user as any)?.id || 0);
+  const { socket: chatSocket } = useChatSocket(currentUserId || null);
   const [floatingChatEnabled, setFloatingChatEnabled] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const [savedCount, setSavedCount] = useState(0);
@@ -996,6 +999,39 @@ function CandidateDashboardContent() {
   }, [activeTab, fetchConversations]);
 
   useEffect(() => {
+    if (activeTab !== "messages" || !session?.user) return;
+    fetchConversations().catch(() => {});
+    const interval = window.setInterval(() => {
+      fetchConversations().catch(() => {});
+    }, 3000);
+    return () => window.clearInterval(interval);
+  }, [activeTab, session, fetchConversations]);
+
+  useEffect(() => {
+    if (!chatSocket || !currentUserId) return;
+
+    const refreshIfMine = (message: any) => {
+      if (
+        Number(message?.senderId) === currentUserId ||
+        Number(message?.receiverId) === currentUserId ||
+        Number(message?.userId) === currentUserId
+      ) {
+        fetchConversations().catch(() => {});
+      }
+    };
+
+    chatSocket.on("new-message", refreshIfMine);
+    chatSocket.on("message-seen", refreshIfMine);
+    chatSocket.on("message-reaction", refreshIfMine);
+
+    return () => {
+      chatSocket.off("new-message", refreshIfMine);
+      chatSocket.off("message-seen", refreshIfMine);
+      chatSocket.off("message-reaction", refreshIfMine);
+    };
+  }, [chatSocket, currentUserId, fetchConversations]);
+
+  useEffect(() => {
     const userId = Number((session?.user as any)?.id);
     if (!userId) return;
 
@@ -1049,6 +1085,32 @@ function CandidateDashboardContent() {
     } catch (err) {
       setJobs(previousJobs);
       setSavedCount(previousSavedCount);
+    }
+  };
+
+  const handleSaveSearchAlert = async () => {
+    if (!userId) return;
+    const query = [
+      searchQuery,
+      selectedCategory,
+      locationQuery,
+      salaryMin ? `цалин ${salaryMin}+` : "",
+      Object.entries(jobTypeFilters).filter(([, active]) => active).map(([key]) => key).join(" "),
+      Object.entries(experienceFilters).filter(([, active]) => active).map(([key]) => key).join(" "),
+    ].filter(Boolean).join(" ").trim();
+    if (!query) {
+      showAlert("Эхлээд хайлт эсвэл filter сонгоно уу.", "warning");
+      return;
+    }
+    try {
+      await authenticatedPost(API_URLS.jobs.createSavedSearch(), {
+        userId,
+        name: query.slice(0, 48),
+        query,
+      });
+      showAlert("Хайлтын alert хадгалагдлаа. Тохирох шинэ ажил орвол мэдэгдэнэ.", "success");
+    } catch {
+      showAlert("Хайлтын alert хадгалахад алдаа гарлаа.", "error");
     }
   };
 
@@ -1216,7 +1278,7 @@ function CandidateDashboardContent() {
 
   return (
     <DashboardLayout role="candidate">
-      {/* ── NAVBAR ─────────────────────────────────────────────────────────────── */}
+      
       <header className="fixed top-0 left-0 right-0 z-50 h-14 bg-white dark:bg-[#0b1120] border-b border-gray-200 dark:border-[#1a2235] flex items-center px-3 md:px-6 gap-3 md:gap-6">
         <div className="flex items-center gap-2 shrink-0">
           <Image
@@ -1329,7 +1391,7 @@ function CandidateDashboardContent() {
         </div>
       </header>
 
-      {/* ── BODY ───────────────────────────────────────────────────────────────── */}
+      
       <div className="flex h-[100dvh] overflow-hidden bg-gray-50 pt-14 pb-20 dark:bg-[#060c18] md:pb-0">
 
         {activeTab === "improvement" ? (
@@ -1351,14 +1413,14 @@ function CandidateDashboardContent() {
           </main>
         ) : (
           <>
-            <div className="fixed top-14 left-0 right-0 z-40 bg-white dark:bg-[#0b1120] border-b border-gray-200 dark:border-[#1a2235] px-3 md:px-6 py-3 flex items-center gap-2 md:gap-3 flex-wrap md:flex-nowrap">
-              <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-gray-50 dark:bg-[#0d1117] border border-gray-200 dark:border-[#1e2535] rounded-xl px-3 md:px-4 py-2 md:py-2.5">
+            <div className="fixed top-14 left-0 right-0 z-40 flex items-center gap-2 border-b border-gray-200 bg-white px-3 py-2 dark:border-[#1a2235] dark:bg-[#0b1120] md:gap-3 md:px-6 md:py-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-[#1e2535] dark:bg-[#0d1117] md:min-w-[200px] md:px-4 md:py-2.5">
                 <Search size={15} className="text-gray-400 shrink-0" />
                 <input
                   value={searchQuery}
                   onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                   placeholder="Ажлын байр хайх..."
-                  className="flex-1 bg-transparent text-sm text-gray-900 dark:text-white placeholder-gray-400 outline-none"
+                  className="min-w-0 flex-1 bg-transparent text-sm text-gray-900 outline-none placeholder-gray-400 dark:text-white"
                 />
               </div>
               <div className="hidden md:flex items-center gap-2 bg-gray-50 dark:bg-[#0d1117] border border-gray-200 dark:border-[#1e2535] rounded-xl px-4 py-2.5 cursor-pointer min-w-[160px]">
@@ -1393,7 +1455,7 @@ function CandidateDashboardContent() {
               </button>
             </div>
 
-            <div className="flex w-full h-full pt-[56px] bg-gray-50 dark:bg-[#060c18]">
+            <div className="flex w-full h-full bg-gray-50 pt-[50px] dark:bg-[#060c18] md:pt-[56px]">
               <aside className="hidden md:flex w-72 shrink-0 sticky top-[112px] self-start h-[calc(100vh-112px)] overflow-y-auto border-r border-gray-200 dark:border-[#1a2235] bg-white/95 dark:bg-[#0b1120]/95 backdrop-blur p-5 scrollbar-hide flex-col shadow-sm">
                 <div className="flex items-center justify-between mb-5">
                   <p className="text-sm font-bold text-gray-900 dark:text-white">Шүүлтүүр</p>
@@ -1457,7 +1519,7 @@ function CandidateDashboardContent() {
                     max={10000000}
                     step={100000}
                     value={salaryMax}
-                    onChange={(e) => { setSalaryMin(500000); setSalaryMax(Number(e.target.value)); setCurrentPage(1); }}
+                    onChange={(e) => { setSalaryMin(500000); setSalaryMax(Number(e.target.value)); setCurrentPage(1); }}  
                     className="w-full accent-blue-600 cursor-pointer"
                   />
                   <div className="flex justify-between text-xs text-gray-400 mt-1">
@@ -1542,13 +1604,13 @@ function CandidateDashboardContent() {
                     )}
                     {locationQuery && (
                       <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white dark:bg-[#1a2035] border border-gray-200 dark:border-[#2a3550] rounded-full text-xs font-medium text-gray-700 dark:text-gray-300">
-                        📍 {locationQuery}
+                         {locationQuery}
                         <button onClick={() => setLocationQuery("")} className="ml-1 text-gray-400 hover:text-red-500"><X size={12} /></button>
                       </div>
                     )}
                     {salaryMax < 10000000 && (
                       <div className="inline-flex items-center gap-2 px-2.5 py-1 bg-white dark:bg-[#1a2035] border border-gray-200 dark:border-[#2a3550] rounded-full text-xs font-medium text-gray-700 dark:text-gray-300">
-                        💰 до {formatNumber(salaryMax)}₮
+                         {formatNumber(salaryMax)}₮
                         <button onClick={() => setSalaryMax(10000000)} className="ml-1 text-gray-400 hover:text-red-500"><X size={12} /></button>
                       </div>
                     )}
@@ -1558,7 +1620,7 @@ function CandidateDashboardContent() {
                   </div>
                 )}
 
-                <div className="shrink-0 px-3 md:px-6 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-3 md:gap-0 border-b border-gray-100 dark:border-[#1a2235] bg-white dark:bg-[#0b1120]">
+                  <div className="flex shrink-0 items-center justify-between gap-2 border-b border-gray-100 bg-white px-3 py-2 dark:border-[#1a2235] dark:bg-[#0b1120] md:px-6 md:py-3">
                   <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-4">
                     <div className="hidden md:flex items-center gap-1 overflow-x-auto scrollbar-hide whitespace-nowrap">
                       {[
@@ -1583,10 +1645,19 @@ function CandidateDashboardContent() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-2 md:flex-none md:justify-start md:gap-3">
+                    <p className="shrink-0 text-sm text-gray-500 dark:text-gray-400">
                       <span className="font-semibold text-gray-900 dark:text-white">{filteredJobs.length}</span> ажлын байр
                     </p>
+                    <button
+                      type="button"
+                      onClick={handleSaveSearchAlert}
+                      className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs font-black text-blue-500 hover:bg-blue-500/15"
+                    >
+                      <Bell size={13} />
+                      <span className="hidden min-[380px]:inline">Хайлтын alert</span>
+                      <span className="min-[380px]:hidden">Alert</span>
+                    </button>
                     <div className="hidden md:flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 cursor-pointer">
                       <span>Эрэмбэлэх:</span>
                       <select
@@ -1618,7 +1689,7 @@ function CandidateDashboardContent() {
                   </div>
                 </div>
 
-                <div className={`flex-1 overflow-y-auto px-3 md:px-6 py-4 scrollbar-hide ${viewMode === "grid" ? "hidden md:grid md:grid-cols-2 gap-4 content-start" : "flex flex-col gap-3"}`}>
+                <div className={`flex-1 overflow-y-auto px-3 py-3 scrollbar-hide md:px-6 md:py-4 ${viewMode === "grid" ? "hidden md:grid md:grid-cols-2 gap-4 content-start" : "flex flex-col gap-3"}`}>
                   {loading ? (
                     <div className="col-span-1 md:col-span-2 flex justify-center py-20">
                       <Loader2 className="animate-spin text-blue-600" size={28} />
@@ -1695,7 +1766,7 @@ function CandidateDashboardContent() {
         )}
       </div>
 
-      {/* ── AI PANEL ──────────────────────────────────────────────────────────── */}
+      
       {mobileFiltersOpen && (
         <div className="fixed inset-0 z-[70] bg-black/45 md:hidden" onClick={() => setMobileFiltersOpen(false)}>
           <section
@@ -1760,7 +1831,7 @@ function CandidateDashboardContent() {
       />
       <FloatingChat enabled={floatingChatEnabled} />
 
-      {/* ── MODALS ────────────────────────────────────────────────────────────── */}
+      
       {showProfile && (
         <ProfileModal
           onClose={() => setShowProfile(false)}
@@ -1772,6 +1843,7 @@ function CandidateDashboardContent() {
         <CVModal
           onClose={() => setShowCV(false)}
           userId={(session?.user as any)?.id || 0}
+          onSaved={(profile) => setCandidateProfile((previous: any) => ({ ...(previous || {}), ...profile }))}
         />
       )}
       {showSettings && (
@@ -1796,13 +1868,13 @@ function CandidateDashboardContent() {
           userId={(session?.user as any)?.id || 0}
         />
       )}
-      {/* ── MOBILE BOTTOM NAV ───────────────────────────────────────────────── */}
+      
       <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden bg-white dark:bg-[#0b1120] border-t border-gray-200 dark:border-[#1a2235]">
         <div className="grid grid-cols-5">
           {[
             { key: "all", label: "Ажлын байр", Icon: LayoutGrid },
             { key: "saved", label: "Хадгалсан", Icon: Bookmark },
-            { key: "applied", label: "CV", Icon: Briefcase },
+            { key: "applied", label: "Илгээсэн", Icon: Briefcase },
             { key: "messages", label: "Чат", Icon: Send },
             { key: "improvement", label: "TODO", Icon: Sparkles },
           ].map(({ key, label, Icon }) => (
@@ -1813,14 +1885,14 @@ function CandidateDashboardContent() {
                 setCurrentPage(1);
               }}
               aria-label={label}
-              className={`flex flex-col items-center justify-center gap-1 px-1.5 py-2 text-[11px] transition-all ${
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[10px] transition-all ${
                 activeTab === key
                   ? "text-blue-600 dark:text-blue-400"
                   : "text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white"
               }`}
             >
               <Icon size={18} />
-              <span className="inline-flex items-center gap-1 leading-none">
+              <span className="inline-flex max-w-full items-center gap-1 truncate leading-none">
                 {label}
                 {key === "messages" && unreadChatCount > 0 && (
                   <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-black text-white">
