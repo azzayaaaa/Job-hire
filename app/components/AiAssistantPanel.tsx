@@ -651,6 +651,15 @@ function formatCandidateRecommendations(items: LooseRecord[]) {
   };
 }
 
+function formatJobLinkFound(job: LooseRecord) {
+  return {
+    text: [
+      `"${String(job.title || "Ajliin zar")}" zar oldloo.`,
+      "Candidate recommendation unshihad tur aldaa garlaa. Dahiad ilgeewel bi ene zar deer tohiroh kandidatuudiig haij ogno.",
+    ].join("\n\n"),
+  };
+}
+
 function CvPreviewModal({
   htmlContent,
   onClose,
@@ -935,11 +944,25 @@ export default function AiAssistantPanel({
       return formatJobRecommendations(recRes.data?.recommendations || []);
     }
 
-    if (role === "employer" && asksForCandidates) {
-      const recRes = await authenticatedPost(API_URLS.jobs.recommendationsCandidatesForJob(), {
-        ...(jobId ? { jobId } : {}),
-        searchText: searchContext,
-      });
+    if (role === "employer" && (asksForCandidates || (mode === "growth" && jobId))) {
+      let jobFromLink: LooseRecord | null = null;
+      if (jobId) {
+        const jobRes = await authenticatedFetch(API_URLS.jobs.detail(jobId));
+        jobFromLink = jobRes.data;
+      }
+
+      let recRes;
+      try {
+        recRes = await authenticatedPost(API_URLS.jobs.recommendationsCandidatesForJob(), {
+          ...(jobId ? { jobId } : {}),
+          searchText: searchContext,
+        });
+      } catch (error: unknown) {
+        if ((error as { response?: { status?: number } })?.response?.status === 404 && jobFromLink) {
+          return formatJobLinkFound(jobFromLink);
+        }
+        throw error;
+      }
 
       return formatCandidateRecommendations(recRes.data?.recommendations || []);
     }
@@ -974,7 +997,19 @@ export default function AiAssistantPanel({
         }
       }
 
-      const structuredAnswer = await handleStructuredAiRequest(userText, previousMessages);
+      let structuredAnswer: { text: string; actions?: AiMessage["actions"] } | null = null;
+      try {
+        structuredAnswer = await handleStructuredAiRequest(userText, previousMessages);
+      } catch (error: unknown) {
+        const status = (error as { response?: { status?: number } })?.response?.status;
+        if (status === 404) {
+          structuredAnswer = {
+            text: "Ene ajliin zar oldsongui. Employer dashboard deer tuhain ajliin Copy tovchoor huulsan /jobs/... holboosoo dahin yavuulaarai.",
+          };
+        } else {
+          throw error;
+        }
+      }
       if (structuredAnswer) {
         setMessagesForCurrentKey((prev) => [
           ...prev,
