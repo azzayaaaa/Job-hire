@@ -10,12 +10,9 @@ RUN apt-get update \
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY scripts ./scripts
-COPY services/auth-service/package.json ./services/auth-service/package.json
-COPY services/auth-service/prisma ./services/auth-service/prisma
+COPY services ./services
 
 RUN pnpm install --frozen-lockfile --ignore-scripts --filter auth-service...
-
-COPY services/auth-service ./services/auth-service
 
 RUN pnpm --filter auth-service build
 
