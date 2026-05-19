@@ -488,9 +488,28 @@ function loadMessages(storageKey: string): AiMessage[] {
   }
 }
 
+function isInterviewPrepRequest(text: string) {
+  const normalized = text.toLowerCase();
+  return [
+    "ярилцлага",
+    "ажлын ярилц",
+    "interview",
+    "yriltslaga",
+    "yariltslaga",
+    "yriltslag",
+    "yariltslag",
+    "ajliin yrilts",
+    "ajliin yarilts",
+    "beldmeer",
+    "beldeh",
+    "beltgeh",
+  ].some((keyword) => normalized.includes(keyword));
+}
+
 function shouldSuggestTodo(mode: AiMode, role: "candidate" | "employer", text: string) {
   if (role !== "candidate") return false;
   const normalized = text.toLowerCase();
+  if (isInterviewPrepRequest(text)) return true;
   const keywords = [
     "сурах",
     "сайжруулах",
@@ -504,6 +523,11 @@ function shouldSuggestTodo(mode: AiMode, role: "candidate" | "employer", text: s
     "career",
     "cv",
     "portfolio",
+    "interview",
+    "yriltslaga",
+    "yariltslaga",
+    "yriltslag",
+    "yariltslag",
     "ярилцлага",
     "surah",
     "suraltsah",
@@ -527,9 +551,53 @@ function shouldSuggestTodo(mode: AiMode, role: "candidate" | "employer", text: s
   return keywords.some((keyword) => normalized.includes(keyword));
 }
 
+function isTodoAddRequest(text: string) {
+  const normalized = text.toLowerCase();
+  return [
+    "todo deer nem",
+    "todo-d nem",
+    "todo дээр нэм",
+    "todo дээр нэмээд",
+    "todo болгож",
+    "todo bolgo",
+    "todo bolgood",
+    "зорилго болго",
+    "жагсаалтанд нэм",
+    "jagsaaltand nem",
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function buildInterviewPrepText() {
+  return [
+    "Ажлын ярилцлаганд бэлдэх хамгийн хэрэгтэй checklist:",
+    "",
+    "1. 60 секундийн өөрийн танилцуулга бэлд: хэн бэ, юу хийдэг вэ, ямар төсөл хийсэн бэ.",
+    "2. CV болон portfolio дээрх 2-3 гол ажлаа жишээтэй тайлбарлаж давт.",
+    "3. JobHub төслийнхөө tech stack-ийг энгийнээр тайлбарла: Next.js, React, Prisma, MySQL, NextAuth, Socket.IO.",
+    "4. Нийтлэг асуултуудад богино хариулт бэлд: давуу тал, сул тал, багийн ажил, алдаа зассан туршлага.",
+    "5. Ярилцлагын төгсгөлд асуух 2-3 асуулт бэлд: багийн workflow, growth боломж, project process.",
+    "",
+    "Хүсвэл үүнийг TODO дээр зорилго болгон нэмээд, дараа нь 30 хоногийн roadmap болгож болно.",
+  ].join("\n");
+}
+
 function buildTodoSuggestion(userText: string, aiText: string) {
   const cleanUserText = userText.replace(/\s+/g, " ").trim();
   const cleanAiText = aiText.replace(/\s+/g, " ").trim();
+
+  if (isInterviewPrepRequest(cleanUserText)) {
+    return {
+      title: "Ажлын ярилцлаганд бэлдэх",
+      note: [
+        "1. Өөрийн танилцуулга 60 секундээр бэлдэх.",
+        "2. CV, portfolio, JobHub төслийн гол feature-үүдээ тайлбарлаж давтах.",
+        "3. Ашигласан технологиудын үүргийг бэлдэх: Next.js, React, Prisma, MySQL, NextAuth, Socket.IO.",
+        "4. Нийтлэг асуултын хариулт бэлдэх: өөрийгөө танилцуул, давуу/сул тал, төсөл дээр тулгарсан бэрхшээл.",
+        "5. Ярилцлагын төгсгөлд асуух 2-3 асуулт бэлдэх.",
+      ].join("\n"),
+    };
+  }
+
   return {
     title: cleanUserText.length > 80 ? `${cleanUserText.slice(0, 80)}...` : cleanUserText,
     note: cleanAiText.length > 260 ? `${cleanAiText.slice(0, 260)}...` : cleanAiText,
@@ -870,7 +938,7 @@ export default function AiAssistantPanel({
   const handleStructuredAiRequest = async (
     userText: string,
     previousMessages: AiMessage[],
-  ): Promise<{ text: string; actions?: AiMessage["actions"] } | null> => {
+  ): Promise<{ text: string; actions?: AiMessage["actions"]; todoSuggestion?: AiMessage["todoSuggestion"] } | null> => {
     if (!userId) return null;
 
     const recentUserContext = previousMessages
@@ -880,6 +948,22 @@ export default function AiAssistantPanel({
       .join(" ");
     const searchContext = `${recentUserContext} ${userText}`.trim();
     const jobId = extractJobIdFromText(searchContext);
+
+    if (role === "candidate" && isTodoAddRequest(userText)) {
+      const todoSuggestion = buildTodoSuggestion(userText, buildInterviewPrepText());
+      addSelfImprovementTodo(userId, todoSuggestion);
+      return {
+        text: `"${todoSuggestion.title}" TODO дээр нэмэгдлээ. TODO хэсгээс хараад 30 хоногийн roadmap болгож болно.`,
+      };
+    }
+
+    if (role === "candidate" && isInterviewPrepRequest(userText)) {
+      return {
+        text: buildInterviewPrepText(),
+        todoSuggestion: buildTodoSuggestion(userText, buildInterviewPrepText()),
+      };
+    }
+
     const asksForOwnJobFit = includesAny(searchContext, [
       "her tohir",
       "хэр тохир",
@@ -1015,7 +1099,7 @@ export default function AiAssistantPanel({
         }
       }
 
-      let structuredAnswer: { text: string; actions?: AiMessage["actions"] } | null = null;
+      let structuredAnswer: { text: string; actions?: AiMessage["actions"]; todoSuggestion?: AiMessage["todoSuggestion"] } | null = null;
       try {
         structuredAnswer = await handleStructuredAiRequest(userText, previousMessages);
       } catch (error: unknown) {
@@ -1031,7 +1115,12 @@ export default function AiAssistantPanel({
       if (structuredAnswer) {
         setMessagesForCurrentKey((prev) => [
           ...prev,
-          { role: "assistant", text: structuredAnswer.text, actions: structuredAnswer.actions },
+          {
+            role: "assistant",
+            text: structuredAnswer.text,
+            actions: structuredAnswer.actions,
+            todoSuggestion: structuredAnswer.todoSuggestion,
+          },
         ]);
         return;
       }
