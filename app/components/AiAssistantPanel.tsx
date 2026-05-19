@@ -18,6 +18,7 @@ import { API_URLS } from "@/lib/apiConfig";
 import { useAlert } from "@/components/AlertProvider";
 
 type AiMode = "cv" | "growth" | "jobs" | "chat";
+type CvTemplate = "classic" | "modern" | "minimal";
 type CvForm = {
   name: string;
   title: string;
@@ -54,7 +55,7 @@ type LooseRecord = Record<string, unknown>;
 
 const candidateModes: { key: AiMode; label: string; Icon: React.ElementType }[] = [
   { key: "cv", label: "CV бэлдэх", Icon: Printer },
-  { key: "growth", label: " Өөрийгөө хөгжүүлэх", Icon: Sparkles },
+  { key: "growth", label: "Өөрийгөө хөгжүүлэх", Icon: Sparkles },
   { key: "jobs", label: "Тохирох ажил хайх", Icon: Briefcase },
 ];
 
@@ -164,10 +165,15 @@ function getSavedProfile(userId?: number | string) {
   }
 }
 
+function getCvTemplateColors() {
+  return { accent: "#ddb75f", side: "#f2eadb", text: "#252d3b" };
+}
+
 function buildCvFromForm(form: CvForm, userId?: number | string) {
   const photo = getProfilePhoto(userId);
   const missing = getMissingCvFields(form);
   if (missing.length) return "";
+  const colors = getCvTemplateColors();
 
   const contactLines = [
     form.email,
@@ -210,7 +216,7 @@ function buildCvFromForm(form: CvForm, userId?: number | string) {
       position: absolute;
       inset: 0 0 auto 0;
       height: 59mm;
-      background: #ddb75f;
+      background: ${colors.accent};
     }
     .left-bg {
       position: absolute;
@@ -218,7 +224,7 @@ function buildCvFromForm(form: CvForm, userId?: number | string) {
       top: 59mm;
       bottom: 0;
       width: 77mm;
-      background: #f2eadb;
+      background: ${colors.side};
     }
     .right-bg {
       position: absolute;
@@ -257,7 +263,7 @@ function buildCvFromForm(form: CvForm, userId?: number | string) {
     }
     .block {
       position: absolute;
-      color: #252d3b;
+      color: ${colors.text};
       z-index: 3;
     }
     h1 {
@@ -458,6 +464,10 @@ function getNonCyrillicCvFields(form: CvForm) {
     .map(({ label }) => label);
 }
 
+function sanitizeContactValue(value: string) {
+  return value.replace(/[^\p{Script=Cyrillic}A-Za-z0-9@._:/?&=%+#,\-\s]/gu, "");
+}
+
 function loadMessages(storageKey: string): AiMessage[] {
   if (typeof window === "undefined") {
     return [{ role: "assistant", text: "Сайн байна уу. Та ямар тусламж авах вэ?" }];
@@ -465,10 +475,15 @@ function loadMessages(storageKey: string): AiMessage[] {
 
   try {
     const saved = localStorage.getItem(storageKey);
+    if (saved && (saved.length > 200_000 || /\?{3,}|[\u00d0\u00d1\u00d2\u00d3][\u0080-\uFFFF]/.test(saved))) {
+      localStorage.removeItem(storageKey);
+      return [{ role: "assistant", text: "Сайн байна уу. Та ямар тусламж авах вэ?" }];
+    }
     return saved
       ? JSON.parse(saved)
       : [{ role: "assistant", text: "Сайн байна уу. Та ямар тусламж авах вэ?" }];
   } catch {
+    localStorage.removeItem(storageKey);
     return [{ role: "assistant", text: "Сайн байна уу. Та ямар тусламж авах вэ?" }];
   }
 }
@@ -646,6 +661,8 @@ function formatCandidateRecommendations(items: LooseRecord[]) {
         email: String(candidate.email || ""),
         fullName: String(candidate.fullName || candidate.email || "Candidate"),
         phone: String(candidate.phone || ""),
+        cvFileName: String(candidate.cvFileName || "candidate-cv.txt"),
+        skills: String(candidate.skills || ""),
       },
     })).filter((action) => Number(action.payload.id) > 0),
   };
@@ -654,8 +671,8 @@ function formatCandidateRecommendations(items: LooseRecord[]) {
 function formatJobLinkFound(job: LooseRecord) {
   return {
     text: [
-      `"${String(job.title || "Ajliin zar")}" zar oldloo.`,
-      "Candidate recommendation unshihad tur aldaa garlaa. Dahiad ilgeewel bi ene zar deer tohiroh kandidatuudiig haij ogno.",
+      `"${String(job.title || "Ажлын зар")}" олдлоо.`,
+      "Candidate recommendation уншихад түр алдаа гарлаа. Дахин илгээвэл би энэ зар дээр тохирох кандидатуудыг хайж өгнө.",
     ].join("\n\n"),
   };
 }
@@ -799,6 +816,7 @@ export default function AiAssistantPanel({
   const [savedCv, setSavedCv] = useState<{ html: string; text: string } | null>(null);
   const [proActive, setProActive] = useState(false);
   const [expandedCvSection, setExpandedCvSection] = useState<string>("personal");
+  const [cvTemplate, setCvTemplate] = useState<CvTemplate>("classic");
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const storageKey = useMemo(() => `jobhub-ai-${userId || "guest"}-${mode}`, [userId, mode]);
   const messages = messageStore[storageKey] ?? loadMessages(storageKey);
@@ -1004,7 +1022,7 @@ export default function AiAssistantPanel({
         const status = (error as { response?: { status?: number } })?.response?.status;
         if (status === 404) {
           structuredAnswer = {
-            text: "Ene ajliin zar oldsongui. Employer dashboard deer tuhain ajliin Copy tovchoor huulsan /jobs/... holboosoo dahin yavuulaarai.",
+            text: "Энэ ажлын зар олдсонгүй. Employer dashboard дээр тухайн ажлын Copy товчоор хуулсан /jobs/... холбоосоо дахин явуулаарай.",
           };
         } else {
           throw error;
@@ -1111,7 +1129,7 @@ export default function AiAssistantPanel({
           ...prev,
           {
             role: "assistant",
-            text: "🎯 30 хоногийн roadmap үүсгэх боломж дууссан байна!\n\nFree хэрэглэгчид 1 удаа ашиглаж болно. Pro эрхтэй болохын тулд profile дээрээс шатлал ахиулаа.\n\n💳 Pro эрх: 10,000₮/сар (хязгааргүй roadmap үүсгэлт)\n\nPro болсон даруудаа дахин оролдоно уу.",
+            text: "30 хоногийн roadmap үүсгэх боломж дууссан байна!\n\nFree хэрэглэгчид 1 удаа ашиглаж болно. Pro эрхтэй болохын тулд profile дээрээс шатлал ахиулаа.\n\nPro эрх: 10,000₮/сар (хязгааргүй roadmap үүсгэлт)\n\nPro болсон даруудаа дахин оролдоно уу.",
             showUpgradeButton: true,
           },
         ]);
@@ -1163,7 +1181,7 @@ export default function AiAssistantPanel({
             ...prev,
             {
               role: "assistant",
-              text: "🎯 AI CV үүсгэх боломж дууссан байна!\n\nFree хэрэглэгчид 1 удаа ашиглаж болно. Pro эрхтэй болохын тулд profile дээрээс шатлал ахиулаа.\n\n💳 Pro эрх: 10,000₮/сар (хязгааргүй AI CV үүсгэлт)\n\nPro болсон даруудаа дахин оролдоно уу.",
+              text: "AI CV үүсгэх боломж дууссан байна!\n\nFree хэрэглэгчид 1 удаа ашиглаж болно. Pro эрхтэй болохын тулд profile дээрээс шатлал ахиулаа.\n\nPro эрх: 10,000₮/сар (хязгааргүй AI CV үүсгэлт)\n\nPro болсон даруудаа дахин оролдоно уу.",
               showUpgradeButton: true,
             },
           ]);
@@ -1232,12 +1250,12 @@ export default function AiAssistantPanel({
           </button>
         </div>
 
-        <div className={`grid grid-cols-1 gap-1 border-b border-gray-200 p-3 dark:border-[#1e2535] ${role === "candidate" ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+        <div className={`grid gap-1.5 border-b border-gray-200 p-3 dark:border-[#1e2535] ${role === "candidate" ? "grid-cols-3" : "grid-cols-2"}`}>
           {availableModes.map(({ key, label, Icon }) => (
             <button
               key={key}
               onClick={() => setMode(key)}
-              className={`px-2 py-2 rounded-lg text-[11px] font-semibold flex flex-col items-center gap-1 ${
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1.5 py-2 text-center text-[10px] font-semibold leading-tight transition sm:text-[11px] ${
                 mode === key
                   ? "bg-blue-600 text-white"
                   : "bg-gray-100 dark:bg-[#1a2035] text-gray-600 dark:text-gray-300"
@@ -1250,9 +1268,9 @@ export default function AiAssistantPanel({
         </div>
 
         {mode === "cv" && (
-          <div className="border-b border-gray-200 dark:border-[#1e2535]">
+          <div className="space-y-3 border-b border-gray-200 bg-gray-50/70 p-3 dark:border-[#1e2535] dark:bg-[#0b1020]">
             {savedCv?.html && (
-              <div className="border-b border-gray-100 p-3 dark:border-[#0f1620]">
+              <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-3">
                 <button
                   type="button"
                   onClick={() => setPreviewHtml(savedCv.html)}
@@ -1265,69 +1283,94 @@ export default function AiAssistantPanel({
                 </p>
               </div>
             )}
-            {/* Personal Info Section */}
-            <div className="border-b border-gray-100 dark:border-[#0f1620]">
+            { }
+            <div className="hidden">
+              <p className="mb-2 text-xs font-bold text-gray-900 dark:text-white">CV загвар</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  ["classic", "Classic"],
+                  ["modern", "Modern"],
+                  ["minimal", "Minimal"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setCvTemplate(key as CvTemplate)}
+                    className={`rounded-xl px-2 py-2 text-[10px] font-black transition ${
+                      cvTemplate === key
+                        ? "bg-blue-600 text-white"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-[#0b1020] dark:text-gray-300 dark:hover:bg-[#141f34]"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            { }
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-[#1e2535] dark:bg-[#101827]">
               <button
                 onClick={() => setExpandedCvSection(expandedCvSection === "personal" ? "" : "personal")}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-[#0f1620] transition"
+                className="flex w-full items-center justify-between px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-[#141f34]"
               >
-                <span className="text-xs font-bold text-gray-900 dark:text-white">👤 Хувийн мэдээлэл</span>
+                <span className="text-xs font-bold text-gray-900 dark:text-white">Хувийн мэдээлэл</span>
                 <span className={`text-gray-400 transition ${expandedCvSection === "personal" ? "rotate-180" : ""}`}>▼</span>
               </button>
               {expandedCvSection === "personal" && (
-                <div className="px-3 py-2 space-y-2 bg-gray-50 dark:bg-[#0f1620]">
+                <div className="grid gap-2 border-t border-gray-100 bg-gray-50 px-3 py-3 dark:border-[#1e2535] dark:bg-[#0b1020] sm:grid-cols-2">
                   <input value={cvForm.name} onChange={(e) => setCvForm(p => ({ ...p, name: e.target.value }))} placeholder="Нэр" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
                   <input value={cvForm.title} onChange={(e) => setCvForm(p => ({ ...p, title: e.target.value }))} placeholder="Мэргэжил" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
                   <input value={cvForm.phone} onChange={(e) => setCvForm(p => ({ ...p, phone: e.target.value }))} placeholder="Утас" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
-                  <input value={cvForm.email} onChange={(e) => setCvForm(p => ({ ...p, email: e.target.value }))} placeholder="И-мэйл" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
+                  <input value={cvForm.email} onChange={(e) => setCvForm(p => ({ ...p, email: sanitizeContactValue(e.target.value) }))} placeholder="И-мэйл" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
                   <input value={cvForm.location} onChange={(e) => setCvForm(p => ({ ...p, location: e.target.value }))} placeholder="Байршил" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
                 </div>
               )}
             </div>
 
-            {/* Links Section */}
-            <div className="border-b border-gray-100 dark:border-[#0f1620]">
+            { }
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-[#1e2535] dark:bg-[#101827]">
               <button
                 onClick={() => setExpandedCvSection(expandedCvSection === "links" ? "" : "links")}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-[#0f1620] transition"
+                className="flex w-full items-center justify-between px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-[#141f34]"
               >
-                <span className="text-xs font-bold text-gray-900 dark:text-white">🔗 Холбоо</span>
+                <span className="text-xs font-bold text-gray-900 dark:text-white">Холбоо</span>
                 <span className={`text-gray-400 transition ${expandedCvSection === "links" ? "rotate-180" : ""}`}>▼</span>
               </button>
               {expandedCvSection === "links" && (
-                <div className="px-3 py-2 space-y-2 bg-gray-50 dark:bg-[#0f1620]">
-                  <input value={cvForm.linkedin} onChange={(e) => setCvForm(p => ({ ...p, linkedin: e.target.value }))} placeholder="LinkedIn холбоос" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
-                  <input value={cvForm.website} onChange={(e) => setCvForm(p => ({ ...p, website: e.target.value }))} placeholder="Portfolio / website" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
+                <div className="grid gap-2 border-t border-gray-100 bg-gray-50 px-3 py-3 dark:border-[#1e2535] dark:bg-[#0b1020]">
+                  <input value={cvForm.linkedin} onChange={(e) => setCvForm(p => ({ ...p, linkedin: sanitizeContactValue(e.target.value) }))} placeholder="LinkedIn холбоос" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
+                  <input value={cvForm.website} onChange={(e) => setCvForm(p => ({ ...p, website: sanitizeContactValue(e.target.value) }))} placeholder="Portfolio / website" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none" />
                 </div>
               )}
             </div>
 
-            {/* Professional Section */}
-            <div className="border-b border-gray-100 dark:border-[#0f1620]">
+            { }
+            <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-[#1e2535] dark:bg-[#101827]">
               <button
                 onClick={() => setExpandedCvSection(expandedCvSection === "professional" ? "" : "professional")}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-[#0f1620] transition"
+                className="flex w-full items-center justify-between px-4 py-3 transition hover:bg-gray-50 dark:hover:bg-[#141f34]"
               >
-                <span className="text-xs font-bold text-gray-900 dark:text-white">💼 Мэргэжлийн мэдээлэл</span>
+                <span className="text-xs font-bold text-gray-900 dark:text-white">Мэргэжлийн мэдээлэл</span>
                 <span className={`text-gray-400 transition ${expandedCvSection === "professional" ? "rotate-180" : ""}`}>▼</span>
               </button>
               {expandedCvSection === "professional" && (
-                <div className="px-3 py-2 space-y-2 bg-gray-50 dark:bg-[#0f1620]">
+                <div className="space-y-2 border-t border-gray-100 bg-gray-50 px-3 py-3 dark:border-[#1e2535] dark:bg-[#0b1020]">
                   <textarea value={cvForm.summary} onChange={(e) => setCvForm(p => ({ ...p, summary: e.target.value }))} placeholder="Товч танилцуулга" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none resize-none h-16" />
-                  <textarea value={cvForm.skills} onChange={(e) => setCvForm(p => ({ ...p, skills: e.target.value }))} placeholder="Ур чадвар (томъёогоор салга)" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none resize-none h-16" />
+                  <textarea value={cvForm.skills} onChange={(e) => setCvForm(p => ({ ...p, skills: e.target.value }))} placeholder="Ур чадвар (таслалаар салга)" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none resize-none h-16" />
                   <textarea value={cvForm.experience} onChange={(e) => setCvForm(p => ({ ...p, experience: e.target.value }))} placeholder="Туршлага" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none resize-none h-20" />
                   <textarea value={cvForm.education} onChange={(e) => setCvForm(p => ({ ...p, education: e.target.value }))} placeholder="Боловсрол" className="w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-[#1e2535] rounded-lg px-3 py-2 text-xs text-gray-900 dark:text-white outline-none resize-none h-16" />
                 </div>
               )}
             </div>
 
-            {/* Generate Button */}
-            <div className="p-3">
+            { }
+            <div>
               <button
                 onClick={generateCv}
-                className="w-full bg-blue-600 text-white rounded-lg py-2 text-xs font-bold hover:bg-blue-700 transition"
+                className="w-full rounded-xl bg-gradient-to-r from-violet-600 to-blue-600 py-3 text-xs font-black text-white shadow-lg shadow-blue-900/20 transition hover:from-violet-500 hover:to-blue-500"
               >
-                ✨ CV загвар үүсгэх
+                CV загвар үүсгэх
               </button>
             </div>
           </div>
@@ -1393,12 +1436,20 @@ export default function AiAssistantPanel({
                   </div>
                 )}
                 {msg.cvHtml && (
-                  <button
-                    onClick={() => setPreviewHtml(msg.cvHtml || "")}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-blue-700"
-                  >
-                    <Eye size={14} /> CV харах / PDF татах
-                  </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button
+                      onClick={() => setPreviewHtml(msg.cvHtml || "")}
+                      className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-blue-700"
+                    >
+                      <Eye size={14} /> CV харах
+                    </button>
+                    <button
+                      onClick={() => setPreviewHtml(msg.cvHtml || "")}
+                      className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-[11px] font-bold text-white hover:bg-violet-700"
+                    >
+                      <Download size={14} /> PDF татах
+                    </button>
+                  </div>
                 )}
                 {msg.showUpgradeButton && (
                   <button
@@ -1408,7 +1459,7 @@ export default function AiAssistantPanel({
                     className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-3 py-2 text-[11px] font-bold text-white hover:from-purple-700 hover:to-pink-700 transition"
                   >
                     <Gem size={14} />
-                    Pro болон хэрэглэгч нэмэх
+                    Pro болгон хэрэглэгч нэмэх
                   </button>
                 )}
                 {msg.todoSuggestion && (
@@ -1417,7 +1468,7 @@ export default function AiAssistantPanel({
                       Өөрийгөө хөгжүүлэх дээр ямар байдлаар нэмэх вэ?
                     </p>
                     <p className="mt-1 text-[11px] text-blue-900/80 dark:text-blue-100/80">
-                      Нэг зорилго болгон хадгалах эсвэл 30 хоногийн өдөр өдөртэй roadmap болгож үүсгэнэ.
+                      Нэг зорилго болгон хадгалах эсвэл 30 хоногийн өдөр өдрөөр roadmap болгож үүсгэнэ.
                     </p>
 
                     <div className="mt-3 grid gap-2">
